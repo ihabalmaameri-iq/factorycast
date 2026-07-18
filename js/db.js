@@ -22,15 +22,25 @@ const DB = (() => {
   function saveLocal() { localStorage.setItem(LS_KEY, JSON.stringify(store)); }
 
   /* ---------- إعداد Supabase ---------- */
+  // بيانات الاتصال الافتراضية (المفتاح العام آمن للنشر - الصلاحيات تحكمها سياسات RLS)
+  const DEFAULT_URL = 'https://mwozysiprckekukebiwa.supabase.co';
+  const DEFAULT_KEY = 'sb_publishable_K_gTh4DMb9eg-d5_Y3LS5Q_BIdws6FQ';
+
   function getConfig() {
+    if (localStorage.getItem('sb_off') === '1') return { url: '', key: '' };
     return {
-      url: localStorage.getItem('sb_url') || '',
-      key: localStorage.getItem('sb_key') || ''
+      url: localStorage.getItem('sb_url') || DEFAULT_URL,
+      key: localStorage.getItem('sb_key') || DEFAULT_KEY
     };
   }
   function setConfig(url, key) {
-    if (url && key) { localStorage.setItem('sb_url', url); localStorage.setItem('sb_key', key); }
-    else { localStorage.removeItem('sb_url'); localStorage.removeItem('sb_key'); }
+    if (url && key) {
+      localStorage.removeItem('sb_off');
+      localStorage.setItem('sb_url', url); localStorage.setItem('sb_key', key);
+    } else {
+      localStorage.removeItem('sb_url'); localStorage.removeItem('sb_key');
+      localStorage.setItem('sb_off', '1');
+    }
   }
   async function connect() {
     const { url, key } = getConfig();
