@@ -1330,6 +1330,17 @@ $('#importFile').onchange = async e => {
   } catch(err) { toast('ملف غير صالح: '+err.message, 'err'); }
   e.target.value = '';
 };
+$('#btnResetData').onclick = async () => {
+  if (!confirm('⚠️ سيتم حذف كل البيانات نهائياً (مواد، خلطات، زبائن، فواتير، مصاريف، عربات، موظفين، رواتب، شركاء).\nهل أنت متأكد؟')) return;
+  const word = prompt('للتأكيد النهائي اكتب: تصفير');
+  if (word !== 'تصفير') return toast('تم الإلغاء — لم يُحذف شيء', '');
+  try {
+    await DB.clearAllData();
+    toast('✔ تم تصفير كل البيانات', 'ok');
+    await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
 $('#btnSaveCurrency').onclick = () => {
   CUR = $('#currencyInput').value.trim() || 'د.ع';
   localStorage.setItem('currency', CUR);

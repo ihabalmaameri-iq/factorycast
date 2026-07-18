@@ -137,6 +137,21 @@ const DB = (() => {
     saveLocal();
   }
 
+  /* ---------- تصفير كل البيانات (لا يشمل حسابات الدخول) ---------- */
+  async function clearAllData() {
+    const order = ['movements','mixture_items','invoices','salaries','partner_withdrawals',
+                   'mixtures','materials','customers','expenses','vehicles','employees','partners'];
+    if (backend === 'supabase') {
+      for (const t of order) {
+        const { error } = await sb.from(t).delete().gt('id', 0);
+        if (error && !/does not exist|not find/i.test(error.message)) throw new Error(`${t}: ${error.message}`);
+      }
+    } else {
+      store = emptyStore();
+      saveLocal();
+    }
+  }
+
   /* ---------- تصدير / استيراد (محلي) ---------- */
   function exportData() { return JSON.stringify(store, null, 2); }
   function importData(json) {
@@ -146,7 +161,7 @@ const DB = (() => {
   }
 
   return {
-    connect, list, insert, update, remove,
+    connect, list, insert, update, remove, clearAllData,
     getConfig, setConfig, exportData, importData,
     getUser, signIn, signOut, createUser,
     get backend() { return backend; }
