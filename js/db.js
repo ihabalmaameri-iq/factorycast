@@ -75,6 +75,17 @@ const DB = (() => {
     return data.user;
   }
   async function signOut() { if (sb) await sb.auth.signOut(); }
+  async function rpc(fn, args) {
+    const { data, error } = await sb.rpc(fn, args || {});
+    if (error) throw new Error(error.message);
+    return data;
+  }
+  // إنشاء حساب المالك الأول (يسجل الدخول مباشرة بالجلسة الرئيسية)
+  async function signUpOwner(email, password) {
+    const { data, error } = await sb.auth.signUp({ email, password });
+    if (error) throw new Error(error.message);
+    return data;
+  }
   // إنشاء حساب جديد بعميل مؤقت كي لا تتأثر جلسة المالك الحالية
   async function createUser(email, password) {
     const { url, key } = getConfig();
@@ -163,7 +174,7 @@ const DB = (() => {
   return {
     connect, list, insert, update, remove, clearAllData,
     getConfig, setConfig, exportData, importData,
-    getUser, signIn, signOut, createUser,
+    getUser, signIn, signOut, createUser, rpc, signUpOwner,
     get backend() { return backend; }
   };
 })();

@@ -29,7 +29,7 @@
       <button class="nav-btn" data-page="users">👤 المستخدمون</button>
       <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
     </nav>
-    <div class="user-box" id="userBox" style="display:none">
+    <div class="user-box" id="userBox">
       <div id="userName"></div>
       <div id="userRole" class="user-role"></div>
       <button class="btn sm" id="btnLogout" style="margin-top:6px">🚪 تسجيل الخروج</button>
@@ -225,6 +225,13 @@
         <input id="loginPass" type="password" autocomplete="current-password" required></div>
       <button class="btn primary" type="submit" style="width:100%">🔐 دخول</button>
     </form>
+    <button class="btn ghost" id="btnFirstRun" style="width:100%;margin-top:10px">🆕 أول تشغيل؟ إنشاء حساب المالك</button>
+    <div id="firstRunBox" style="display:none;text-align:right;margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+      <div class="form-row"><label>الاسم الظاهر</label><input id="fr_name" placeholder="مرتضى"></div>
+      <div class="form-row"><label>اسم المستخدم (أحرف إنجليزية)</label><input id="fr_user" dir="ltr" placeholder="murtadha"></div>
+      <div class="form-row"><label>كلمة المرور (6 أحرف فأكثر)</label><input id="fr_pass" type="password" dir="ltr"></div>
+      <button class="btn primary" id="btnCreateOwner" style="width:100%">👑 إنشاء حساب المالك</button>
+    </div>
     <div id="loginError"></div>
   </div>
 </div>

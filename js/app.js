@@ -1104,12 +1104,14 @@ window.saveUser = async function() {
   const pass = $('#f_pass').value;
   if (!name || !username) return toast('الاسم واسم المستخدم مطلوبان', 'err');
   if (pass.length < 6) return toast('كلمة المرور 6 أحرف على الأقل', 'err');
+  if (!username.includes('@') && !/^[a-z0-9._-]+$/.test(username))
+    return toast('✖ اسم المستخدم بأحرف إنجليزية فقط (مثل ali)', 'err');
   const email = username.includes('@') ? username : `${username}@factory.local`;
   try {
     const newUser = await DB.createUser(email, pass);
     await DB.insert('profiles', { id: newUser.id, name, role: $('#f_role').value, active: true });
     closeModal(); toast(`✔ تم إنشاء الحساب — الدخول بـ: ${email}`, 'ok'); await refresh();
-  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+  } catch(e) { toast('خطأ: ' + sbErrorAr(e.message), 'err'); }
 };
 window.toggleUser = async function(id, active) {
   try { await DB.update('profiles', id, { active: !active }); await refresh(); }
@@ -1392,7 +1394,7 @@ async function enterApp(user) {
       if (profiles.length === 0) {
         // أول مستخدم يسجل الدخول = المالك تلقائياً
         try {
-          me = await DB.insert('profiles', { id: user.id, name: (user.email||'').split('@')[0], role: 'owner', active: true });
+          me = await DB.insert('profiles', { id: user.id, name: window._firstName || (user.email||'').split('@')[0], role: 'owner', active: true });
           toast('👑 تم تعيينك مالكاً للنظام (أول مستخدم)', 'ok');
         } catch(e) {
           await DB.signOut();
@@ -1408,13 +1410,13 @@ async function enterApp(user) {
       return showLogin('⛔ هذا الحساب موقوف — راجع المالك');
     }
     ROLE = me.role;
-    $('#userBox').style.display = 'block';
+    $('#userBox').classList.add('show');
     $('#userName').textContent = me.name;
     $('#userRole').textContent = ROLE_NAMES[ROLE] || ROLE;
   } else {
     // وضع محلي بدون حسابات: صلاحيات مالك
     ROLE = 'owner';
-    $('#userBox').style.display = 'none';
+    $('#userBox').classList.remove('show');
   }
   hideLogin();
   applyPermissions();
@@ -1442,6 +1444,61 @@ $('#btnLogout').onclick = async () => {
   if (!confirm('تسجيل الخروج؟')) return;
   await DB.signOut();
   location.reload();
+};
+
+// ---------- إنشاء حساب المالك الأول (يعمل مرة واحدة فقط) ----------
+function sbErrorAr(msg) {
+  if (/confirmation email|error sending|smtp/i.test(msg))
+    return 'يجب إيقاف خيار Confirm email في Supabase: Authentication ← Sign In / Providers ← Email';
+  if (/does not exist|could not find|schema cache|404/i.test(msg))
+    return 'يجب تنفيذ ملف supabase/setup-all.sql في SQL Editor أولاً';
+  if (/at least 6|password should/i.test(msg))
+    return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
+  if (/invalid.*email|email.*invalid/i.test(msg))
+    return 'اسم المستخدم غير مقبول — استخدم أحرفاً إنجليزية فقط (مثل murtadha)';
+  if (/already registered|already exists/i.test(msg))
+    return 'هذا الحساب موجود مسبقاً — جرّب تسجيل الدخول';
+  return msg;
+}
+
+$('#btnFirstRun').onclick = async () => {
+  $('#loginError').textContent = '⏳ جارٍ التحقق...';
+  try {
+    const count = await DB.rpc('profiles_count');
+    if (Number(count) > 0) {
+      $('#loginError').textContent = '⛔ يوجد حسابات في النظام مسبقاً — اطلب من المالك إنشاء حساب لك';
+      return;
+    }
+    $('#loginError').textContent = '';
+    $('#firstRunBox').style.display = 'block';
+    $('#btnFirstRun').style.display = 'none';
+  } catch(e) {
+    $('#loginError').textContent = '✖ ' + sbErrorAr(e.message);
+  }
+};
+
+$('#btnCreateOwner').onclick = async () => {
+  const name = $('#fr_name').value.trim();
+  let username = $('#fr_user').value.trim().toLowerCase();
+  const pass = $('#fr_pass').value;
+  if (!name || !username) return $('#loginError').textContent = '✖ أدخل الاسم واسم المستخدم';
+  if (!username.includes('@') && !/^[a-z0-9._-]+$/.test(username))
+    return $('#loginError').textContent = '✖ اسم المستخدم بأحرف إنجليزية فقط (مثل murtadha)';
+  if (pass.length < 6) return $('#loginError').textContent = '✖ كلمة المرور 6 أحرف على الأقل';
+  const email = username.includes('@') ? username : `${username}@factory.local`;
+  $('#loginError').textContent = '⏳ جارٍ إنشاء الحساب...';
+  try {
+    const data = await DB.signUpOwner(email, pass);
+    if (!data.session) {
+      $('#loginError').textContent = '✖ ' + sbErrorAr('confirmation email');
+      return;
+    }
+    window._firstName = name;
+    $('#fr_pass').value = '';
+    await enterApp(data.session.user);
+  } catch(e) {
+    $('#loginError').textContent = '✖ ' + sbErrorAr(e.message);
+  }
 };
 
 // ---------- بدء التشغيل ----------

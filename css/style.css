@@ -17,7 +17,9 @@ body { background:var(--bg); color:var(--text); font-size:15px; }
   display:flex; flex-direction:column; position:sticky; top:0; height:100vh; flex-shrink:0;
 }
 .brand { font-size:19px; font-weight:900; color:#fff; padding:22px 18px; border-bottom:1px solid #1e293b; }
-#nav { display:flex; flex-direction:column; padding:10px; gap:4px; flex:1; }
+#nav { display:flex; flex-direction:column; padding:10px; gap:4px; flex:1; overflow-y:auto; min-height:0; }
+#nav::-webkit-scrollbar { width:5px; }
+#nav::-webkit-scrollbar-thumb { background:#334155; border-radius:99px; }
 .nav-btn {
   background:none; border:none; color:var(--sidebar-text); text-align:right;
   padding:11px 14px; border-radius:10px; cursor:pointer; font-size:15px; font-weight:600;
@@ -66,7 +68,29 @@ body { background:var(--bg); color:var(--text); font-size:15px; }
 .panel { background:var(--panel); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); border:1px solid var(--line); margin-bottom:18px; }
 .panel h3 { font-size:16px; margin-bottom:12px; }
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
-@media (max-width:900px){ .grid-2{grid-template-columns:1fr;} .sidebar{width:64px;} .brand,.backend-badge{display:none;} .nav-btn{font-size:18px; text-align:center; padding:11px 4px; overflow:hidden; white-space:nowrap;} }
+@media (max-width:900px){ .grid-2{grid-template-columns:1fr;} }
+
+/* ===== واجهة الموبايل: القائمة تتحول لشريط علوي أفقي ===== */
+@media (max-width:768px){
+  .layout { flex-direction:column; }
+  .sidebar { position:sticky; top:0; width:100%; height:auto; z-index:60; box-shadow:0 2px 12px rgba(0,0,0,.3); }
+  .brand { padding:10px 16px; font-size:16px; border-bottom:none; }
+  #nav { flex-direction:row; overflow-x:auto; overflow-y:visible; padding:2px 10px 10px; gap:6px; }
+  #nav::-webkit-scrollbar { height:0; }
+  .nav-btn { white-space:nowrap; flex-shrink:0; font-size:13px; padding:8px 12px; }
+  .user-box.show { display:flex !important; align-items:center; gap:10px; padding:7px 16px; font-size:13px; }
+  .user-box .btn { margin-top:0 !important; }
+  .backend-badge { display:none; }
+  .content { padding:14px 12px; }
+  .form-grid { grid-template-columns:1fr; }
+  .cards { grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:10px; }
+  .card .c-value { font-size:20px; }
+  .page-head h1 { font-size:19px; }
+  .page-head input[type=search] { width:140px; }
+  .modal-overlay { padding:14px 8px; }
+  .modal-body { padding:16px; }
+  .barchart { gap:6px; }
+}
 
 .tbl-wrap { overflow-x:auto; }
 .tbl { width:100%; border-collapse:collapse; font-size:14px; }
@@ -146,9 +170,9 @@ body { background:var(--bg); color:var(--text); font-size:15px; }
 #loginError { color:var(--red); font-weight:700; font-size:14px; margin-top:12px; min-height:20px; }
 
 /* صندوق المستخدم في الشريط الجانبي */
-.user-box { padding:12px 18px; border-top:1px solid #1e293b; font-size:14px; color:#fff; font-weight:700; }
+.user-box { display:none; padding:12px 18px; border-top:1px solid #1e293b; font-size:14px; color:#fff; font-weight:700; }
+.user-box.show { display:block; }
 .user-box .user-role { font-size:12px; color:#94a3b8; font-weight:400; }
-@media (max-width:900px){ .user-box{display:none !important;} }
 
 #sbStatus { margin-top:12px; font-size:14px; font-weight:700; }
 #sbStatus.ok { color:var(--green); }
