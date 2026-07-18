@@ -21,10 +21,19 @@
       <button class="nav-btn" data-page="mixtures">⚗️ الخلطات</button>
       <button class="nav-btn" data-page="customers">👥 الزبائن</button>
       <button class="nav-btn" data-page="sales">🧾 المبيعات والفواتير</button>
+      <button class="nav-btn" data-page="vehicles">🚚 النقل والعربات</button>
       <button class="nav-btn" data-page="expenses">💰 المصروفات</button>
+      <button class="nav-btn" data-page="employees">👷 الموظفون والرواتب</button>
+      <button class="nav-btn" data-page="partners">🤝 الشركاء والأرباح</button>
       <button class="nav-btn" data-page="reports">📈 التقارير</button>
+      <button class="nav-btn" data-page="users">👤 المستخدمون</button>
       <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
     </nav>
+    <div class="user-box" id="userBox" style="display:none">
+      <div id="userName"></div>
+      <div id="userRole" class="user-role"></div>
+      <button class="btn sm" id="btnLogout" style="margin-top:6px">🚪 تسجيل الخروج</button>
+    </div>
     <div class="backend-badge" id="backendBadge">💾 تخزين محلي</div>
   </aside>
 
@@ -90,6 +99,52 @@
       <div class="panel"><div class="tbl-wrap"><table class="tbl" id="saleTable"></table></div></div>
     </section>
 
+    <!-- النقل والعربات -->
+    <section class="page" id="page-vehicles">
+      <div class="page-head"><h1>🚚 النقل والعربات</h1>
+        <div><button class="btn primary" id="btnAddVehicle">➕ عربة جديدة</button></div>
+      </div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="vehTable"></table></div></div>
+      <div class="panel"><h3>📦 سجل التوصيلات (من الفواتير)</h3>
+        <div class="tbl-wrap"><table class="tbl" id="delivTable"></table></div></div>
+    </section>
+
+    <!-- الموظفون والرواتب -->
+    <section class="page" id="page-employees">
+      <div class="page-head"><h1>👷 الموظفون والرواتب</h1>
+        <div><button class="btn primary" id="btnAddEmployee">➕ موظف جديد</button></div>
+      </div>
+      <div class="cards" id="empCards"></div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="empTable"></table></div></div>
+      <div class="panel"><h3>💵 سجل الرواتب المدفوعة</h3>
+        <div class="tbl-wrap"><table class="tbl" id="salTable"></table></div></div>
+    </section>
+
+    <!-- الشركاء والأرباح -->
+    <section class="page" id="page-partners">
+      <div class="page-head"><h1>🤝 الشركاء والأرباح</h1>
+        <div class="filters">
+          <label>من <input type="date" id="parFrom"></label>
+          <label>إلى <input type="date" id="parTo"></label>
+          <button class="btn" id="parApply">تحديث</button>
+          <button class="btn primary" id="btnAddPartner">➕ شريك جديد</button>
+        </div>
+      </div>
+      <div class="cards" id="parCards"></div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="parTable"></table></div></div>
+      <div class="panel"><h3>🧾 سجل سحوبات الشركاء</h3>
+        <div class="tbl-wrap"><table class="tbl" id="pwTable"></table></div></div>
+    </section>
+
+    <!-- المستخدمون -->
+    <section class="page" id="page-users">
+      <div class="page-head"><h1>👤 المستخدمون والصلاحيات</h1>
+        <div><button class="btn primary" id="btnAddUser">➕ حساب جديد</button></div>
+      </div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="userTable"></table></div></div>
+      <div class="panel"><h3>ℹ️ الصلاحيات</h3><div id="rolesHelp"></div></div>
+    </section>
+
     <!-- المصروفات -->
     <section class="page" id="page-expenses">
       <div class="page-head"><h1>💰 المصروفات</h1>
@@ -149,6 +204,23 @@
   <div class="modal" id="modalBox">
     <div class="modal-head"><h2 id="modalTitle"></h2><button class="close-x" id="modalClose">✕</button></div>
     <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ===== شاشة تسجيل الدخول ===== -->
+<div id="loginScreen" style="display:none">
+  <div class="login-card">
+    <div class="login-logo">🏭</div>
+    <h1>نظام إدارة مصنع الصبّ</h1>
+    <p class="muted" style="text-align:center">سجّل الدخول للمتابعة</p>
+    <form id="loginForm">
+      <div class="form-row"><label>اسم المستخدم أو البريد</label>
+        <input id="loginEmail" autocomplete="username" required></div>
+      <div class="form-row"><label>كلمة المرور</label>
+        <input id="loginPass" type="password" autocomplete="current-password" required></div>
+      <button class="btn primary" type="submit" style="width:100%">🔐 دخول</button>
+    </form>
+    <div id="loginError"></div>
   </div>
 </div>
 

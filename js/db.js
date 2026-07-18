@@ -3,7 +3,8 @@
    وتتحول تلقائياً إلى Supabase عند إدخال بيانات الربط.
    ===================================================== */
 const DB = (() => {
-  const TABLES = ['materials','movements','customers','mixtures','mixture_items','invoices','expenses'];
+  const TABLES = ['materials','movements','customers','mixtures','mixture_items','invoices','expenses',
+                  'vehicles','partners','partner_withdrawals','employees','salaries','profiles'];
   const LS_KEY = 'casting_factory_data';
   let sb = null;            // عميل Supabase
   let backend = 'local';
@@ -48,7 +49,8 @@ const DB = (() => {
       try {
         sb = window.supabase.createClient(url, key);
         const { error } = await sb.from('materials').select('id').limit(1);
-        if (error) throw error;
+        // خطأ صلاحيات = الاتصال سليم لكن يتطلب تسجيل دخول (RLS مفعّلة)
+        if (error && !/permission|denied|rls|jwt|authoriz/i.test(error.message)) throw error;
         backend = 'supabase';
         return true;
       } catch (e) {
@@ -59,6 +61,28 @@ const DB = (() => {
     }
     sb = null; backend = 'local';
     return false;
+  }
+
+  /* ---------- المصادقة (تسجيل الدخول) ---------- */
+  async function getUser() {
+    if (!sb) return null;
+    const { data } = await sb.auth.getSession();
+    return data.session ? data.session.user : null;
+  }
+  async function signIn(email, password) {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw new Error(error.message);
+    return data.user;
+  }
+  async function signOut() { if (sb) await sb.auth.signOut(); }
+  // إنشاء حساب جديد بعميل مؤقت كي لا تتأثر جلسة المالك الحالية
+  async function createUser(email, password) {
+    const { url, key } = getConfig();
+    const temp = window.supabase.createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data, error } = await temp.auth.signUp({ email, password });
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error('تعذر إنشاء الحساب');
+    return data.user;
   }
 
   /* ---------- العمليات الأساسية ---------- */
@@ -124,6 +148,7 @@ const DB = (() => {
   return {
     connect, list, insert, update, remove,
     getConfig, setConfig, exportData, importData,
+    getUser, signIn, signOut, createUser,
     get backend() { return backend; }
   };
 })();

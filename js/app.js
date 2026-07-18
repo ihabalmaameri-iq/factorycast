@@ -3,8 +3,28 @@
    ===================================================== */
 
 // ---------- الحالة العامة ----------
-const S = { materials:[], movements:[], customers:[], mixtures:[], mixture_items:[], invoices:[], expenses:[] };
+const S = { materials:[], movements:[], customers:[], mixtures:[], mixture_items:[], invoices:[], expenses:[],
+            vehicles:[], partners:[], partner_withdrawals:[], employees:[], salaries:[], profiles:[] };
 let CUR = localStorage.getItem('currency') || 'د.ع';
+
+// ---------- الصلاحيات ----------
+let ROLE = 'owner';           // الدور الحالي
+let USER = null;              // مستخدم Supabase الحالي
+const ROLE_NAMES = { owner:'👑 المالك', manager:'📋 المدير', accountant:'🧮 المحاسب' };
+// الصفحات المتاحة لكل دور
+const ROLE_PAGES = {
+  owner:      ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','users','settings'],
+  manager:    ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports'],
+  accountant: ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports']
+};
+// أقسام يحق للدور تعديلها (المالك يعدل كل شيء، المدير عرض فقط)
+const ROLE_EDIT = {
+  owner:      ['materials','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
+  manager:    [],
+  accountant: ['customers','sales','vehicles','expenses','employees']
+};
+const canView = page => ROLE_PAGES[ROLE].includes(page);
+const canEdit = section => ROLE_EDIT[ROLE].includes(section);
 
 // ---------- أدوات مساعدة ----------
 const $ = sel => document.querySelector(sel);
@@ -34,7 +54,9 @@ $('#modalOverlay').addEventListener('click', e => { if (e.target === e.currentTa
 // ---------- تحميل البيانات ----------
 async function loadAll() {
   const tables = Object.keys(S);
-  const results = await Promise.all(tables.map(t => DB.list(t)));
+  const results = await Promise.all(tables.map(t =>
+    DB.list(t).catch(e => { console.warn(`تعذر تحميل ${t}:`, e.message); return []; })
+  ));
   tables.forEach((t,i) => S[t] = results[i]);
 }
 
@@ -64,9 +86,11 @@ function showPage(page) {
   renderPage(page);
 }
 function renderPage(page) {
+  if (!canView(page)) return;
   ({dashboard:renderDashboard, materials:renderMaterials, mixtures:renderMixtures,
     customers:renderCustomers, sales:renderSales, expenses:renderExpenses,
-    reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
+    vehicles:renderVehicles, employees:renderEmployees, partners:renderPartners,
+    users:renderUsers, reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
 }
 function currentPage() {
   const b = $('.nav-btn.active'); return b ? b.dataset.page : 'dashboard';
@@ -90,12 +114,12 @@ function renderMaterials() {
         <td class="num">${money(m.unit_price)}</td>
         <td class="num">${money(qty * m.unit_price)}</td>
         <td><span class="badge ${low?'low':'ok'}">${low?'⚠️ منخفض':'✔ متوفر'}</span></td>
-        <td><div class="actions">
+        <td>${canEdit('materials') ? `<div class="actions">
           <button class="btn sm primary" onclick="supplyForm(${m.id})">➕ توريد</button>
           <button class="btn sm" onclick="issueForm(${m.id})">➖ صرف</button>
           <button class="btn sm" onclick="materialForm(${m.id})">✏️</button>
           <button class="btn sm danger" onclick="delMaterial(${m.id})">🗑️</button>
-        </div></td>
+        </div>` : '<span class="hint">عرض فقط</span>'}</td>
       </tr>`;
     }).join('');
   $('#matTable').innerHTML = `
@@ -243,11 +267,11 @@ function renderMixtures() {
         <td class="num">${money(cost)}</td>
         <td>${cust ? esc(cust.name) : '—'}</td>
         <td><span class="badge ${m.status==='executed'?'done':'draft'}">${m.status==='executed'?'✔ منفذة':'⏳ مسودة'}</span></td>
-        <td><div class="actions">
+        <td>${canEdit('mixtures') ? `<div class="actions">
           ${m.status!=='executed' ? `<button class="btn sm primary" onclick="executeMixture(${m.id})">▶️ تنفيذ</button>
           <button class="btn sm" onclick="mixtureForm(${m.id})">✏️</button>` : ''}
           <button class="btn sm danger" onclick="delMixture(${m.id})">🗑️</button>
-        </div></td>
+        </div>` : '<span class="hint">عرض فقط</span>'}</td>
       </tr>`;
     }).join('');
   $('#mixTable').innerHTML = `
@@ -411,8 +435,8 @@ function renderCustomers() {
         <td class="num">${money(total)}</td>
         <td><div class="actions">
           <button class="btn sm" onclick="showCustomer(${c.id})">👁️ التفاصيل</button>
-          <button class="btn sm" onclick="customerForm(${c.id})">✏️</button>
-          <button class="btn sm danger" onclick="delCustomer(${c.id})">🗑️</button>
+          ${canEdit('customers') ? `<button class="btn sm" onclick="customerForm(${c.id})">✏️</button>
+          <button class="btn sm danger" onclick="delCustomer(${c.id})">🗑️</button>` : ''}
         </div></td>
       </tr>`;
     }).join('');
@@ -505,11 +529,14 @@ function renderSales() {
     .map(v => {
       const c = custById(v.customer_id);
       const m = v.mixture_id ? mixById(v.mixture_id) : null;
+      const veh = v.vehicle_id ? S.vehicles.find(x=>x.id===v.vehicle_id) : null;
+      const deliv = [v.delivery_location, veh ? '🚚 '+veh.name : ''].filter(Boolean).join('<br>');
       return `<tr>
         <td><b>${esc(v.invoice_no)}</b></td>
         <td>${esc(v.date)}</td>
         <td>${esc(c?c.name:'—')}</td>
         <td>${m?esc(m.name):'—'}</td>
+        <td>${deliv || '—'}</td>
         <td class="num">${fmt(v.qty)}</td>
         <td class="num">${money(v.cost)}</td>
         <td class="num">${fmt(v.margin_pct)}%</td>
@@ -517,14 +544,14 @@ function renderSales() {
         <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مدفوعة':'آجلة'}</span></td>
         <td><div class="actions">
           <button class="btn sm" onclick="printInvoice(${v.id})">🖨️ طباعة</button>
-          <button class="btn sm" onclick="togglePaid(${v.id})">${v.paid?'↩️':'💵 تسديد'}</button>
-          <button class="btn sm danger" onclick="delInvoice(${v.id})">🗑️</button>
+          ${canEdit('sales') ? `<button class="btn sm" onclick="togglePaid(${v.id})">${v.paid?'↩️':'💵 تسديد'}</button>
+          <button class="btn sm danger" onclick="delInvoice(${v.id})">🗑️</button>` : ''}
         </div></td>
       </tr>`;
     }).join('');
   $('#saleTable').innerHTML = `
-    <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>الزبون</th><th>الخلطة</th><th>الكمية</th><th>الكلفة</th><th>هامش الربح</th><th>المبلغ النهائي</th><th>الدفع</th><th>إجراءات</th></tr>
-    ${rows || '<tr><td colspan="10" class="empty-row">لا توجد فواتير بعد</td></tr>'}`;
+    <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>الزبون</th><th>الخلطة</th><th>التوصيل</th><th>الكمية</th><th>الكلفة</th><th>هامش الربح</th><th>المبلغ النهائي</th><th>الدفع</th><th>إجراءات</th></tr>
+    ${rows || '<tr><td colspan="11" class="empty-row">لا توجد فواتير بعد</td></tr>'}`;
 }
 $('#saleSearch').oninput = renderSales;
 
@@ -551,10 +578,15 @@ window.saleForm = function() {
     </div>
     <div class="calc-box" id="saleCalc">اختر خلطة لحساب الكلفة تلقائياً من المواد الخام.</div>
     <div class="form-grid" style="margin-top:12px">
+      <div class="form-row"><label>🚚 العربة الناقلة</label>
+        <select id="f_vehicle"><option value="">— بدون —</option>
+        ${S.vehicles.map(x=>`<option value="${x.id}">${esc(x.name)}${x.driver?' — '+esc(x.driver):''}</option>`).join('')}</select></div>
+      <div class="form-row"><label>📍 موقع الإرسال</label><input id="f_loc" placeholder="العنوان / الموقع"></div>
+      <div class="form-row"><label>أجرة النقل (${CUR})</label><input id="f_dfee" type="number" min="0" step="any" value="0" oninput="saleRecalc(true)"></div>
       <div class="form-row"><label>حالة الدفع</label>
         <select id="f_paid"><option value="1">مدفوعة</option><option value="0">آجلة</option></select></div>
-      <div class="form-row"><label>ملاحظات</label><input id="f_notes"></div>
     </div>
+    <div class="form-row"><label>ملاحظات</label><input id="f_notes"></div>
     <div class="form-actions">
       <button class="btn primary" onclick="saveSale()">💾 إنشاء الفاتورة</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
@@ -572,9 +604,10 @@ window.saleRecalc = function(manual) {
   }
   const cost = Number($('#f_cost').value)||0;
   const margin = Number($('#f_margin').value)||0;
-  const total = cost * (1 + margin/100);
+  const dfee = Number($('#f_dfee')?.value)||0;
+  const total = cost * (1 + margin/100) + dfee;
   $('#f_total').value = total.toFixed(2);
-  $('#saleCalc').innerHTML = `الكلفة: <b>${money(cost)}</b> + هامش <b>${fmt(margin)}%</b> = المبلغ النهائي: <b>${money(total)}</b>`;
+  $('#saleCalc').innerHTML = `الكلفة: <b>${money(cost)}</b> + هامش <b>${fmt(margin)}%</b>${dfee?` + نقل <b>${money(dfee)}</b>`:''} = المبلغ النهائي: <b>${money(total)}</b>`;
 };
 
 window.saveSale = async function() {
@@ -592,6 +625,9 @@ window.saveSale = async function() {
       cost: Number($('#f_cost').value)||0,
       margin_pct: Number($('#f_margin').value)||0,
       total,
+      vehicle_id: Number($('#f_vehicle').value) || null,
+      delivery_location: $('#f_loc').value.trim(),
+      delivery_fee: Number($('#f_dfee').value)||0,
       paid: $('#f_paid').value === '1',
       notes: $('#f_notes').value.trim()
     });
@@ -616,6 +652,7 @@ window.printInvoice = function(id) {
   const v = S.invoices.find(x=>x.id===id);
   const c = custById(v.customer_id);
   const m = v.mixture_id ? mixById(v.mixture_id) : null;
+  const veh = v.vehicle_id ? S.vehicles.find(x=>x.id===v.vehicle_id) : null;
   $('#printArea').innerHTML = `
     <div class="inv-print">
       <div class="inv-head">
@@ -629,14 +666,17 @@ window.printInvoice = function(id) {
         <b>الزبون:</b> ${esc(c?c.name:'—')}<br>
         ${c&&c.phone?`<b>الهاتف:</b> <span dir="ltr">${esc(c.phone)}</span><br>`:''}
         ${c&&c.address?`<b>العنوان:</b> ${esc(c.address)}<br>`:''}
+        ${v.delivery_location?`<b>📍 موقع الإرسال:</b> ${esc(v.delivery_location)}<br>`:''}
+        ${veh?`<b>🚚 العربة الناقلة:</b> ${esc(veh.name)}${veh.driver?' — السائق: '+esc(veh.driver):''}<br>`:''}
       </div>
       <table>
-        <tr><th>البيان</th><th>الكمية</th><th>الكلفة</th><th>هامش الربح</th><th>المبلغ</th></tr>
+        <tr><th>البيان</th><th>الكمية</th><th>الكلفة</th><th>هامش الربح</th><th>أجرة النقل</th><th>المبلغ</th></tr>
         <tr>
           <td>${m?esc(m.name):'بيع مباشر'}</td>
           <td>${fmt(v.qty)} ${m?esc(m.output_unit):''}</td>
           <td>${money(v.cost)}</td>
           <td>${fmt(v.margin_pct)}%</td>
+          <td>${money(v.delivery_fee||0)}</td>
           <td>${money(v.total)}</td>
         </tr>
       </table>
@@ -665,7 +705,7 @@ function renderExpenses() {
       <td><span class="badge draft">${esc(e.category)}</span></td>
       <td class="num">${money(e.amount)}</td>
       <td>${esc(e.note||'')}</td>
-      <td><div class="actions"><button class="btn sm danger" onclick="delExpense(${e.id})">🗑️</button></div></td>
+      <td>${canEdit('expenses') ? `<div class="actions"><button class="btn sm danger" onclick="delExpense(${e.id})">🗑️</button></div>` : ''}</td>
     </tr>`).join('');
   $('#expTable').innerHTML = `
     <tr><th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr>
@@ -701,6 +741,400 @@ window.delExpense = async function(id) {
 };
 
 /* =====================================================
+   🚚 النقل والعربات
+   ===================================================== */
+function renderVehicles() {
+  const ce = canEdit('vehicles');
+  const rows = S.vehicles.map(v => {
+    const trips = S.invoices.filter(i => i.vehicle_id === v.id).length;
+    return `<tr>
+      <td><b>🚚 ${esc(v.name)}</b></td>
+      <td>${esc(v.driver||'—')}</td>
+      <td dir="ltr" style="text-align:right">${esc(v.phone||'—')}</td>
+      <td class="num">${trips}</td>
+      <td>${esc(v.notes||'')}</td>
+      <td>${ce ? `<div class="actions">
+        <button class="btn sm" onclick="vehicleForm(${v.id})">✏️</button>
+        <button class="btn sm danger" onclick="delVehicle(${v.id})">🗑️</button></div>` : ''}</td>
+    </tr>`;
+  }).join('');
+  $('#vehTable').innerHTML = `
+    <tr><th>العربة</th><th>السائق</th><th>الهاتف</th><th>عدد التوصيلات</th><th>ملاحظات</th><th></th></tr>
+    ${rows || '<tr><td colspan="6" class="empty-row">لا توجد عربات مسجلة</td></tr>'}`;
+
+  const delivs = [...S.invoices].filter(i => i.vehicle_id || i.delivery_location)
+    .sort((a,b)=>b.id-a.id).slice(0,30)
+    .map(i => {
+      const veh = S.vehicles.find(x=>x.id===i.vehicle_id);
+      const c = custById(i.customer_id);
+      const m = i.mixture_id ? mixById(i.mixture_id) : null;
+      return `<tr>
+        <td>${esc(i.date)}</td>
+        <td>${esc(i.invoice_no)}</td>
+        <td>${veh?esc(veh.name):'—'}</td>
+        <td>${esc(c?c.name:'—')}</td>
+        <td>${m?esc(m.name):'—'}</td>
+        <td>📍 ${esc(i.delivery_location||'—')}</td>
+        <td class="num">${money(i.delivery_fee||0)}</td>
+      </tr>`;
+    }).join('');
+  $('#delivTable').innerHTML = `
+    <tr><th>التاريخ</th><th>الفاتورة</th><th>العربة</th><th>الزبون</th><th>الخلطة</th><th>موقع الإرسال</th><th>أجرة النقل</th></tr>
+    ${delivs || '<tr><td colspan="7" class="empty-row">لا توجد توصيلات بعد</td></tr>'}`;
+}
+
+window.vehicleForm = function(id) {
+  const v = id ? S.vehicles.find(x=>x.id===id) : null;
+  modal(v ? 'تعديل عربة' : 'عربة جديدة', `
+    <div class="form-grid">
+      <div class="form-row"><label>اسم / رقم العربة *</label><input id="f_name" value="${esc(v?.name||'')}" placeholder="قلاب 1 / رقم اللوحة"></div>
+      <div class="form-row"><label>اسم السائق</label><input id="f_driver" value="${esc(v?.driver||'')}"></div>
+      <div class="form-row"><label>هاتف السائق</label><input id="f_phone" dir="ltr" value="${esc(v?.phone||'')}"></div>
+      <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(v?.notes||'')}"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveVehicle(${id||0})">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveVehicle = async function(id) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('اسم العربة مطلوب', 'err');
+  const data = { name, driver: $('#f_driver').value.trim(), phone: $('#f_phone').value.trim(), notes: $('#f_notes').value.trim() };
+  try {
+    if (id) await DB.update('vehicles', id, data); else await DB.insert('vehicles', data);
+    closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delVehicle = async function(id) {
+  if (S.invoices.some(i => i.vehicle_id === id)) return toast('لا يمكن حذف عربة مرتبطة بفواتير', 'err');
+  if (!confirm('حذف هذه العربة؟')) return;
+  try { await DB.remove('vehicles', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
+   👷 الموظفون والرواتب
+   ===================================================== */
+function salariesTotal(from, to) {
+  return S.salaries.filter(s => (!from && !to) || inRange(s.date, from, to))
+    .reduce((sum,s)=>sum+Number(s.amount),0);
+}
+
+function renderEmployees() {
+  const ce = canEdit('employees');
+  const month = today().slice(0,7);
+  const monthPaid = S.salaries.filter(s=>(s.month||s.date||'').startsWith(month)).reduce((x,s)=>x+Number(s.amount),0);
+  const expectedMonthly = S.employees.filter(e=>e.active!==false).reduce((x,e)=>x+Number(e.base_salary),0);
+  $('#empCards').innerHTML = `
+    <div class="card blue"><div class="c-label">عدد الموظفين</div><div class="c-value">${S.employees.filter(e=>e.active!==false).length}</div></div>
+    <div class="card amber"><div class="c-label">الرواتب الشهرية المتوقعة</div><div class="c-value">${money(expectedMonthly)}</div></div>
+    <div class="card red"><div class="c-label">المدفوع هذا الشهر</div><div class="c-value">${money(monthPaid)}</div></div>
+    <div class="card"><div class="c-label">إجمالي الرواتب المدفوعة</div><div class="c-value">${money(salariesTotal())}</div></div>`;
+
+  const rows = S.employees.map(e => {
+    const paid = S.salaries.filter(s=>s.employee_id===e.id).reduce((x,s)=>x+Number(s.amount),0);
+    return `<tr>
+      <td><b>${esc(e.name)}</b>${e.active===false?' <span class="badge low">موقوف</span>':''}</td>
+      <td>${esc(e.title||'—')}</td>
+      <td dir="ltr" style="text-align:right">${esc(e.phone||'—')}</td>
+      <td class="num">${money(e.base_salary)}</td>
+      <td class="num">${money(paid)}</td>
+      <td>${ce ? `<div class="actions">
+        <button class="btn sm primary" onclick="payForm(${e.id})">💵 دفع راتب</button>
+        <button class="btn sm" onclick="employeeForm(${e.id})">✏️</button>
+        <button class="btn sm danger" onclick="delEmployee(${e.id})">🗑️</button></div>` : ''}</td>
+    </tr>`;
+  }).join('');
+  $('#empTable').innerHTML = `
+    <tr><th>الموظف</th><th>الوظيفة</th><th>الهاتف</th><th>الراتب الأساسي</th><th>إجمالي المدفوع له</th><th>إجراءات</th></tr>
+    ${rows || '<tr><td colspan="6" class="empty-row">لا يوجد موظفون بعد</td></tr>'}`;
+
+  const sal = [...S.salaries].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,30)
+    .map(s => {
+      const e = S.employees.find(x=>x.id===s.employee_id);
+      return `<tr>
+        <td>${esc(s.date)}</td>
+        <td>${esc(e?e.name:'—')}</td>
+        <td>${esc(s.month||'—')}</td>
+        <td class="num">${money(s.amount)}</td>
+        <td>${esc(s.note||'')}</td>
+        <td>${ce ? `<button class="btn sm danger" onclick="delSalary(${s.id})">🗑️</button>` : ''}</td>
+      </tr>`;
+    }).join('');
+  $('#salTable').innerHTML = `
+    <tr><th>تاريخ الدفع</th><th>الموظف</th><th>عن شهر</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr>
+    ${sal || '<tr><td colspan="6" class="empty-row">لا توجد رواتب مدفوعة</td></tr>'}`;
+}
+
+window.employeeForm = function(id) {
+  const e = id ? S.employees.find(x=>x.id===id) : null;
+  modal(e ? 'تعديل موظف' : 'موظف جديد', `
+    <div class="form-grid">
+      <div class="form-row"><label>الاسم *</label><input id="f_name" value="${esc(e?.name||'')}"></div>
+      <div class="form-row"><label>الوظيفة</label><input id="f_title" value="${esc(e?.title||'')}" placeholder="عامل خلط / سائق..."></div>
+      <div class="form-row"><label>الهاتف</label><input id="f_phone" dir="ltr" value="${esc(e?.phone||'')}"></div>
+      <div class="form-row"><label>الراتب الأساسي (${CUR})</label><input id="f_salary" type="number" min="0" step="any" value="${e?.base_salary??''}"></div>
+      ${e?`<div class="form-row"><label>الحالة</label><select id="f_active"><option value="1" ${e.active!==false?'selected':''}>يعمل</option><option value="0" ${e.active===false?'selected':''}>موقوف</option></select></div>`:''}
+    </div>
+    <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(e?.notes||'')}"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveEmployee(${id||0})">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveEmployee = async function(id) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('اسم الموظف مطلوب', 'err');
+  const data = { name, title: $('#f_title').value.trim(), phone: $('#f_phone').value.trim(),
+    base_salary: Number($('#f_salary').value)||0, notes: $('#f_notes').value.trim() };
+  if (id) data.active = $('#f_active').value === '1';
+  try {
+    if (id) await DB.update('employees', id, data); else await DB.insert('employees', {...data, active:true});
+    closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.payForm = function(empId) {
+  const e = S.employees.find(x=>x.id===empId);
+  modal(`دفع راتب: ${esc(e.name)}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any" value="${e.base_salary}"></div>
+      <div class="form-row"><label>عن شهر</label><input id="f_month" type="month" value="${today().slice(0,7)}"></div>
+      <div class="form-row"><label>تاريخ الدفع</label><input id="f_date" type="date" value="${today()}"></div>
+      <div class="form-row"><label>ملاحظة</label><input id="f_note" placeholder="سلفة، مكافأة..."></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="savePay(${empId})">💾 تسجيل الدفع</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.savePay = async function(empId) {
+  const amount = Number($('#f_amount').value);
+  if (!amount || amount <= 0) return toast('أدخل مبلغاً صحيحاً', 'err');
+  try {
+    await DB.insert('salaries', { employee_id: empId, amount, month: $('#f_month').value,
+      date: $('#f_date').value || today(), note: $('#f_note').value.trim() });
+    closeModal(); toast('تم تسجيل الراتب ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delSalary = async function(id) {
+  if (!confirm('حذف سجل الراتب هذا؟')) return;
+  try { await DB.remove('salaries', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delEmployee = async function(id) {
+  const e = S.employees.find(x=>x.id===id);
+  if (!confirm(`حذف الموظف "${e.name}" وسجل رواتبه؟`)) return;
+  try { await DB.remove('employees', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
+   🤝 الشركاء والأرباح (للمالك فقط)
+   ===================================================== */
+function netProfit(from, to) {
+  const invs = S.invoices.filter(v => (!from && !to) || inRange(v.date, from, to));
+  const sales = invs.reduce((s,v)=>s+Number(v.total),0);
+  const cogs = invs.reduce((s,v)=>s+Number(v.cost),0);
+  const dfees = invs.reduce((s,v)=>s+Number(v.delivery_fee||0),0);
+  const exps = S.expenses.filter(e => (!from && !to) || inRange(e.date, from, to)).reduce((s,e)=>s+Number(e.amount),0);
+  const sals = salariesTotal(from, to);
+  return { sales, cogs, exps, sals, dfees, profit: sales - cogs - exps - sals };
+}
+
+function renderPartners() {
+  const from = $('#parFrom').value, to = $('#parTo').value;
+  const np = netProfit(from, to);
+  const totalPct = S.partners.reduce((s,p)=>s+Number(p.share_pct),0);
+  const totalWd = S.partner_withdrawals.reduce((s,w)=>s+Number(w.amount),0);
+
+  $('#parCards').innerHTML = `
+    <div class="card ${np.profit>=0?'green':'red'}"><div class="c-label">💰 صافي الربح ${from||to?'(للفترة)':'الكلي'}</div><div class="c-value">${money(np.profit)}</div>
+      <div class="c-sub">مبيعات ${fmt(np.sales)} − مواد ${fmt(np.cogs)} − مصاريف ${fmt(np.exps)} − رواتب ${fmt(np.sals)}</div></div>
+    <div class="card blue"><div class="c-label">عدد الشركاء</div><div class="c-value">${S.partners.length}</div>
+      <div class="c-sub">${totalPct !== 100 && S.partners.length ? `⚠️ مجموع النسب ${fmt(totalPct)}% (يفضل 100%)` : 'مجموع النسب 100% ✔'}</div></div>
+    <div class="card amber"><div class="c-label">إجمالي السحوبات</div><div class="c-value">${money(totalWd)}</div></div>`;
+
+  const rows = S.partners.map(p => {
+    const share = np.profit * Number(p.share_pct) / 100;
+    const wd = S.partner_withdrawals.filter(w=>w.partner_id===p.id).reduce((s,w)=>s+Number(w.amount),0);
+    const remain = share - wd;
+    return `<tr>
+      <td><b>${esc(p.name)}</b></td>
+      <td dir="ltr" style="text-align:right">${esc(p.phone||'—')}</td>
+      <td class="num">${fmt(p.share_pct)}%</td>
+      <td class="num">${money(share)}</td>
+      <td class="num">${money(wd)}</td>
+      <td class="num" style="color:${remain>=0?'var(--green)':'var(--red)'}"><b>${money(remain)}</b></td>
+      <td><div class="actions">
+        <button class="btn sm primary" onclick="withdrawForm(${p.id})">💸 سحب</button>
+        <button class="btn sm" onclick="partnerForm(${p.id})">✏️</button>
+        <button class="btn sm danger" onclick="delPartner(${p.id})">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  $('#parTable').innerHTML = `
+    <tr><th>الشريك</th><th>الهاتف</th><th>نسبة الشراكة</th><th>حصته من الربح</th><th>سحوباته</th><th>المتبقي له</th><th>إجراءات</th></tr>
+    ${rows || '<tr><td colspan="7" class="empty-row">لا يوجد شركاء — أضف الشركاء ونسبهم</td></tr>'}`;
+
+  const wds = [...S.partner_withdrawals].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,30)
+    .map(w => {
+      const p = S.partners.find(x=>x.id===w.partner_id);
+      return `<tr><td>${esc(w.date)}</td><td>${esc(p?p.name:'—')}</td>
+        <td class="num">${money(w.amount)}</td><td>${esc(w.note||'')}</td>
+        <td><button class="btn sm danger" onclick="delWithdrawal(${w.id})">🗑️</button></td></tr>`;
+    }).join('');
+  $('#pwTable').innerHTML = `
+    <tr><th>التاريخ</th><th>الشريك</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr>
+    ${wds || '<tr><td colspan="5" class="empty-row">لا توجد سحوبات</td></tr>'}`;
+}
+
+window.partnerForm = function(id) {
+  const p = id ? S.partners.find(x=>x.id===id) : null;
+  modal(p ? 'تعديل شريك' : 'شريك جديد', `
+    <div class="form-grid">
+      <div class="form-row"><label>اسم الشريك *</label><input id="f_name" value="${esc(p?.name||'')}"></div>
+      <div class="form-row"><label>نسبة الشراكة % *</label><input id="f_pct" type="number" min="0" max="100" step="any" value="${p?.share_pct??''}"></div>
+      <div class="form-row"><label>الهاتف</label><input id="f_phone" dir="ltr" value="${esc(p?.phone||'')}"></div>
+      <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(p?.notes||'')}"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="savePartner(${id||0})">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.savePartner = async function(id) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('اسم الشريك مطلوب', 'err');
+  const dup = S.partners.find(p => p.name === name && p.id !== id);
+  if (dup) return toast('⚠️ شريك بنفس الاسم موجود', 'err');
+  const data = { name, share_pct: Number($('#f_pct').value)||0, phone: $('#f_phone').value.trim(), notes: $('#f_notes').value.trim() };
+  try {
+    if (id) await DB.update('partners', id, data); else await DB.insert('partners', data);
+    closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.withdrawForm = function(partnerId) {
+  const p = S.partners.find(x=>x.id===partnerId);
+  modal(`سحب أرباح: ${esc(p.name)}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any"></div>
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${today()}"></div>
+    </div>
+    <div class="form-row"><label>ملاحظة</label><input id="f_note"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveWithdrawal(${partnerId})">💾 تسجيل السحب</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveWithdrawal = async function(partnerId) {
+  const amount = Number($('#f_amount').value);
+  if (!amount || amount <= 0) return toast('أدخل مبلغاً صحيحاً', 'err');
+  try {
+    await DB.insert('partner_withdrawals', { partner_id: partnerId, amount, date: $('#f_date').value||today(), note: $('#f_note').value.trim() });
+    closeModal(); toast('تم تسجيل السحب ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delWithdrawal = async function(id) {
+  if (!confirm('حذف هذا السحب؟')) return;
+  try { await DB.remove('partner_withdrawals', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delPartner = async function(id) {
+  const p = S.partners.find(x=>x.id===id);
+  if (!confirm(`حذف الشريك "${p.name}" وكل سحوباته؟`)) return;
+  try { await DB.remove('partners', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+$('#parApply').onclick = renderPartners;
+
+/* =====================================================
+   👤 المستخدمون والصلاحيات (للمالك فقط)
+   ===================================================== */
+function renderUsers() {
+  $('#rolesHelp').innerHTML = `
+    <table class="tbl">
+      <tr><th>الدور</th><th>الصلاحيات</th></tr>
+      <tr><td>👑 المالك</td><td>كل شيء: الحسابات، الشركاء والأرباح، وكل الأقسام</td></tr>
+      <tr><td>📋 المدير</td><td>متابعة لوحة التحكم والتقارير وكل الأقسام <b>عرضاً فقط</b> دون تعديل</td></tr>
+      <tr><td>🧮 المحاسب</td><td>تعديل: المبيعات، الزبائن، المصاريف، الرواتب، النقل — وعرض المواد والخلطات. لا يرى الشركاء ولا الحسابات</td></tr>
+    </table>`;
+  if (DB.backend !== 'supabase') {
+    $('#userTable').innerHTML = '<tr><td class="empty-row">⚠️ إدارة الحسابات تعمل فقط عند الاتصال بقاعدة البيانات السحابية</td></tr>';
+    return;
+  }
+  const rows = S.profiles.map(p => `<tr>
+    <td><b>${esc(p.name)}</b>${p.id===USER?.id?' <span class="badge done">أنت</span>':''}</td>
+    <td>${ROLE_NAMES[p.role]||esc(p.role)}</td>
+    <td><span class="badge ${p.active?'ok':'low'}">${p.active?'مفعّل':'موقوف'}</span></td>
+    <td>${esc((p.created_at||'').slice(0,10))}</td>
+    <td>${p.id!==USER?.id ? `<div class="actions">
+      <button class="btn sm" onclick="toggleUser('${p.id}', ${p.active})">${p.active?'⏸️ إيقاف':'▶️ تفعيل'}</button>
+      <button class="btn sm" onclick="userRoleForm('${p.id}')">🔁 تغيير الدور</button>
+    </div>` : ''}</td>
+  </tr>`).join('');
+  $('#userTable').innerHTML = `
+    <tr><th>الاسم</th><th>الدور</th><th>الحالة</th><th>تاريخ الإنشاء</th><th>إجراءات</th></tr>
+    ${rows || '<tr><td colspan="5" class="empty-row">لا توجد حسابات</td></tr>'}`;
+}
+
+window.userForm = function() {
+  if (DB.backend !== 'supabase') return toast('إنشاء الحسابات يتطلب الاتصال بقاعدة البيانات السحابية', 'err');
+  modal('حساب جديد', `
+    <div class="form-grid">
+      <div class="form-row"><label>الاسم الظاهر *</label><input id="f_name" placeholder="اسم الموظف"></div>
+      <div class="form-row"><label>اسم المستخدم *</label><input id="f_user" dir="ltr" placeholder="ali أو بريد إلكتروني">
+        <div class="hint">إن لم يكن بريداً سيصبح: name@factory.local</div></div>
+      <div class="form-row"><label>كلمة المرور * (6 أحرف فأكثر)</label><input id="f_pass" type="text" dir="ltr"></div>
+      <div class="form-row"><label>الدور</label>
+        <select id="f_role">
+          <option value="accountant">🧮 محاسب</option>
+          <option value="manager">📋 مدير</option>
+          <option value="owner">👑 مالك</option>
+        </select></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveUser()">💾 إنشاء الحساب</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveUser = async function() {
+  const name = $('#f_name').value.trim();
+  let username = $('#f_user').value.trim().toLowerCase();
+  const pass = $('#f_pass').value;
+  if (!name || !username) return toast('الاسم واسم المستخدم مطلوبان', 'err');
+  if (pass.length < 6) return toast('كلمة المرور 6 أحرف على الأقل', 'err');
+  const email = username.includes('@') ? username : `${username}@factory.local`;
+  try {
+    const newUser = await DB.createUser(email, pass);
+    await DB.insert('profiles', { id: newUser.id, name, role: $('#f_role').value, active: true });
+    closeModal(); toast(`✔ تم إنشاء الحساب — الدخول بـ: ${email}`, 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.toggleUser = async function(id, active) {
+  try { await DB.update('profiles', id, { active: !active }); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.userRoleForm = function(id) {
+  const p = S.profiles.find(x=>x.id===id);
+  modal(`تغيير دور: ${esc(p.name)}`, `
+    <div class="form-row"><label>الدور الجديد</label>
+      <select id="f_role">
+        <option value="accountant" ${p.role==='accountant'?'selected':''}>🧮 محاسب</option>
+        <option value="manager" ${p.role==='manager'?'selected':''}>📋 مدير</option>
+        <option value="owner" ${p.role==='owner'?'selected':''}>👑 مالك</option>
+      </select></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveUserRole('${id}')">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveUserRole = async function(id) {
+  try { await DB.update('profiles', id, { role: $('#f_role').value }); closeModal(); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
    📊 لوحة التحكم
    ===================================================== */
 function inRange(date, from, to) {
@@ -718,7 +1152,8 @@ function renderDashboard() {
 
   const sales = invs.reduce((s,v)=>s+Number(v.total),0);
   const cogs = invs.reduce((s,v)=>s+Number(v.cost),0);
-  const expTotal = exps.reduce((s,e)=>s+Number(e.amount),0);
+  const sals = salariesTotal(from, to);
+  const expTotal = exps.reduce((s,e)=>s+Number(e.amount),0) + sals;
   const production = mixes.reduce((s,m)=>s+Number(m.output_qty),0);
   const stockValue = S.materials.reduce((s,m)=>s+qtyOf(m.id)*Number(m.unit_price),0);
   const activeCust = new Set(invs.map(v=>v.customer_id)).size;
@@ -730,7 +1165,7 @@ function renderDashboard() {
     <div class="card green"><div class="c-label">🧾 إجمالي المبيعات</div><div class="c-value">${money(sales)}</div><div class="c-sub">${invs.length} فاتورة</div></div>
     <div class="card amber"><div class="c-label">📦 قيمة المخزون</div><div class="c-value">${money(stockValue)}</div><div class="c-sub">${S.materials.length} مادة</div></div>
     <div class="card blue"><div class="c-label">👥 الزبائن النشطون</div><div class="c-value">${activeCust}</div><div class="c-sub">من أصل ${S.customers.length}</div></div>
-    <div class="card red"><div class="c-label">💸 المصاريف</div><div class="c-value">${money(expTotal)}</div></div>
+    <div class="card red"><div class="c-label">💸 المصاريف والرواتب</div><div class="c-value">${money(expTotal)}</div><div class="c-sub">${sals>0?`منها رواتب: ${money(sals)}`:''}</div></div>
     <div class="card ${profit>=0?'green':'red'}"><div class="c-label">💰 صافي الربح</div><div class="c-value">${money(profit)}</div><div class="c-sub">${unpaid>0?`منها آجلة: ${money(unpaid)}`:''}</div></div>`;
 
   // المواد المنخفضة
@@ -789,7 +1224,8 @@ function buildReport() {
 
   const sales = invs.reduce((s,v)=>s+Number(v.total),0);
   const cogs = invs.reduce((s,v)=>s+Number(v.cost),0);
-  const expTotal = exps.reduce((s,e)=>s+Number(e.amount),0);
+  const sals = custId ? 0 : salariesTotal(from, to);
+  const expTotal = exps.reduce((s,e)=>s+Number(e.amount),0) + sals;
 
   // استهلاك المواد ضمن الفترة (حركات الصرف)
   const outMovs = S.movements.filter(m => m.type==='out' && ((!from && !to) || inRange(m.date, from, to)));
@@ -800,6 +1236,7 @@ function buildReport() {
 
   const expByCat = {};
   exps.forEach(e => expByCat[e.category] = (expByCat[e.category]||0) + Number(e.amount));
+  if (sals > 0) expByCat['رواتب الموظفين'] = (expByCat['رواتب الموظفين']||0) + sals;
 
   $('#repBody').innerHTML = `
     <div class="cards">
@@ -906,11 +1343,105 @@ $('#btnAddMixture').onclick = () => mixtureForm(0);
 $('#btnAddCustomer').onclick = () => customerForm(0);
 $('#btnAddSale').onclick = () => saleForm();
 $('#btnAddExpense').onclick = () => expenseForm();
+$('#btnAddVehicle').onclick = () => vehicleForm(0);
+$('#btnAddEmployee').onclick = () => employeeForm(0);
+$('#btnAddPartner').onclick = () => partnerForm(0);
+$('#btnAddUser').onclick = () => userForm();
+
+/* =====================================================
+   🔐 تسجيل الدخول وتطبيق الصلاحيات
+   ===================================================== */
+function applyPermissions() {
+  // إخفاء صفحات القائمة غير المسموحة
+  $$('.nav-btn').forEach(b => b.style.display = canView(b.dataset.page) ? '' : 'none');
+  // إخفاء أزرار الإضافة حسب الدور
+  const addBtns = { btnAddMaterial:'materials', btnAddMixture:'mixtures', btnAddCustomer:'customers',
+    btnAddSale:'sales', btnAddExpense:'expenses', btnAddVehicle:'vehicles',
+    btnAddEmployee:'employees', btnAddPartner:'partners', btnAddUser:'users' };
+  Object.entries(addBtns).forEach(([btn, section]) => {
+    const el = document.getElementById(btn);
+    if (el) el.style.display = canEdit(section) ? '' : 'none';
+  });
+}
+
+function showLogin(msg) {
+  $('#loginScreen').style.display = 'flex';
+  $('#loginError').textContent = msg || '';
+}
+function hideLogin() { $('#loginScreen').style.display = 'none'; }
+
+async function enterApp(user) {
+  USER = user;
+  if (DB.backend === 'supabase' && user) {
+    // جلب الملف الشخصي لتحديد الدور
+    let profiles = [];
+    try { profiles = await DB.list('profiles'); } catch(e) { profiles = []; }
+    let me = profiles.find(p => p.id === user.id);
+    if (!me) {
+      if (profiles.length === 0) {
+        // أول مستخدم يسجل الدخول = المالك تلقائياً
+        try {
+          me = await DB.insert('profiles', { id: user.id, name: (user.email||'').split('@')[0], role: 'owner', active: true });
+          toast('👑 تم تعيينك مالكاً للنظام (أول مستخدم)', 'ok');
+        } catch(e) {
+          await DB.signOut();
+          return showLogin('تعذر إنشاء الملف الشخصي — تأكد من تنفيذ schema2.sql: ' + e.message);
+        }
+      } else {
+        await DB.signOut();
+        return showLogin('حسابك غير مفعّل في النظام — راجع المالك');
+      }
+    }
+    if (me.active === false) {
+      await DB.signOut();
+      return showLogin('⛔ هذا الحساب موقوف — راجع المالك');
+    }
+    ROLE = me.role;
+    $('#userBox').style.display = 'block';
+    $('#userName').textContent = me.name;
+    $('#userRole').textContent = ROLE_NAMES[ROLE] || ROLE;
+  } else {
+    // وضع محلي بدون حسابات: صلاحيات مالك
+    ROLE = 'owner';
+    $('#userBox').style.display = 'none';
+  }
+  hideLogin();
+  applyPermissions();
+  await loadAll();
+  showPage('dashboard');
+}
+
+$('#loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  let email = $('#loginEmail').value.trim().toLowerCase();
+  if (email && !email.includes('@')) email += '@factory.local';
+  $('#loginError').textContent = '⏳ جارٍ تسجيل الدخول...';
+  try {
+    const user = await DB.signIn(email, $('#loginPass').value);
+    $('#loginPass').value = '';
+    await enterApp(user);
+  } catch(err) {
+    $('#loginError').textContent = /invalid/i.test(err.message)
+      ? '✖ اسم المستخدم أو كلمة المرور غير صحيحة'
+      : '✖ ' + err.message;
+  }
+});
+
+$('#btnLogout').onclick = async () => {
+  if (!confirm('تسجيل الخروج؟')) return;
+  await DB.signOut();
+  location.reload();
+};
 
 // ---------- بدء التشغيل ----------
 (async function init() {
   await DB.connect();
   updateBadge();
-  await loadAll();
-  renderDashboard();
+  if (DB.backend === 'supabase') {
+    const user = await DB.getUser();
+    if (user) await enterApp(user);
+    else showLogin();
+  } else {
+    await enterApp(null);
+  }
 })();
