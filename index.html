@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نظام إدارة مصنع الصبّ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="layout">
+  <!-- ===== الشريط الجانبي ===== -->
+  <aside class="sidebar">
+    <div class="brand">🏭 مصنع الصبّ</div>
+    <nav id="nav">
+      <button class="nav-btn active" data-page="dashboard">📊 لوحة التحكم</button>
+      <button class="nav-btn" data-page="materials">🧱 المواد الخام</button>
+      <button class="nav-btn" data-page="mixtures">⚗️ الخلطات</button>
+      <button class="nav-btn" data-page="customers">👥 الزبائن</button>
+      <button class="nav-btn" data-page="sales">🧾 المبيعات والفواتير</button>
+      <button class="nav-btn" data-page="expenses">💰 المصروفات</button>
+      <button class="nav-btn" data-page="reports">📈 التقارير</button>
+      <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
+    </nav>
+    <div class="backend-badge" id="backendBadge">💾 تخزين محلي</div>
+  </aside>
+
+  <!-- ===== المحتوى ===== -->
+  <main class="content">
+
+    <!-- لوحة التحكم -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-head"><h1>📊 لوحة التحكم</h1>
+        <div class="filters">
+          <label>من <input type="date" id="dashFrom"></label>
+          <label>إلى <input type="date" id="dashTo"></label>
+          <button class="btn" id="dashApply">تصفية</button>
+          <button class="btn ghost" id="dashClear">إظهار الكل</button>
+        </div>
+      </div>
+      <div class="cards" id="dashCards"></div>
+      <div class="grid-2">
+        <div class="panel"><h3>⚠️ مواد تحت الحد الأدنى</h3><div id="dashLowStock"></div></div>
+        <div class="panel"><h3>🧾 آخر الفواتير</h3><div id="dashRecentSales"></div></div>
+      </div>
+      <div class="panel"><h3>📊 المبيعات الشهرية</h3><div id="dashChart" class="barchart"></div></div>
+    </section>
+
+    <!-- المواد الخام -->
+    <section class="page" id="page-materials">
+      <div class="page-head"><h1>🧱 المواد الخام</h1>
+        <div><input type="search" id="matSearch" placeholder="🔍 بحث عن مادة...">
+        <button class="btn primary" id="btnAddMaterial">➕ مادة جديدة</button></div>
+      </div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="matTable"></table></div></div>
+      <div class="panel"><h3>📦 حركات المواد (توريد / صرف)</h3>
+        <div class="tbl-wrap"><table class="tbl" id="movTable"></table></div></div>
+    </section>
+
+    <!-- الخلطات -->
+    <section class="page" id="page-mixtures">
+      <div class="page-head"><h1>⚗️ الخلطات</h1>
+        <div><input type="search" id="mixSearch" placeholder="🔍 بحث...">
+        <button class="btn primary" id="btnAddMixture">➕ خلطة جديدة</button></div>
+      </div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="mixTable"></table></div></div>
+    </section>
+
+    <!-- الزبائن -->
+    <section class="page" id="page-customers">
+      <div class="page-head"><h1>👥 الزبائن</h1>
+        <div><input type="search" id="custSearch" placeholder="🔍 بحث عن زبون...">
+        <button class="btn primary" id="btnAddCustomer">➕ زبون جديد</button></div>
+      </div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="custTable"></table></div></div>
+      <div class="panel" id="custDetailPanel" style="display:none">
+        <h3 id="custDetailTitle"></h3><div id="custDetail"></div>
+      </div>
+    </section>
+
+    <!-- المبيعات -->
+    <section class="page" id="page-sales">
+      <div class="page-head"><h1>🧾 المبيعات والفواتير</h1>
+        <div><input type="search" id="saleSearch" placeholder="🔍 بحث...">
+        <button class="btn primary" id="btnAddSale">➕ فاتورة جديدة</button></div>
+      </div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="saleTable"></table></div></div>
+    </section>
+
+    <!-- المصروفات -->
+    <section class="page" id="page-expenses">
+      <div class="page-head"><h1>💰 المصروفات</h1>
+        <div><button class="btn primary" id="btnAddExpense">➕ مصروف جديد</button></div>
+      </div>
+      <div class="cards" id="expCards"></div>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="expTable"></table></div></div>
+    </section>
+
+    <!-- التقارير -->
+    <section class="page" id="page-reports">
+      <div class="page-head"><h1>📈 التقارير</h1>
+        <div class="filters">
+          <label>من <input type="date" id="repFrom"></label>
+          <label>إلى <input type="date" id="repTo"></label>
+          <select id="repCustomer"><option value="">كل الزبائن</option></select>
+          <button class="btn" id="repApply">عرض التقرير</button>
+        </div>
+      </div>
+      <div id="repBody"></div>
+    </section>
+
+    <!-- الإعدادات -->
+    <section class="page" id="page-settings">
+      <div class="page-head"><h1>⚙️ الإعدادات</h1></div>
+      <div class="panel">
+        <h3>☁️ الربط مع قاعدة بيانات Supabase</h3>
+        <p class="muted">اترك الحقول فارغة للعمل بالتخزين المحلي على هذا الجهاز. لربط قاعدة البيانات السحابية أدخل بيانات مشروعك من Supabase &gt; Project Settings &gt; API.</p>
+        <div class="form-row"><label>Project URL</label><input type="text" id="sbUrl" placeholder="https://xxxx.supabase.co" dir="ltr"></div>
+        <div class="form-row"><label>Anon Key</label><input type="text" id="sbKey" placeholder="eyJhbGciOi..." dir="ltr"></div>
+        <div class="form-actions">
+          <button class="btn primary" id="btnSaveSb">💾 حفظ واختبار الاتصال</button>
+          <button class="btn ghost" id="btnClearSb">فصل والعودة للتخزين المحلي</button>
+        </div>
+        <div id="sbStatus"></div>
+      </div>
+      <div class="panel">
+        <h3>🗄️ النسخ الاحتياطي (التخزين المحلي)</h3>
+        <div class="form-actions">
+          <button class="btn" id="btnExport">⬇️ تصدير البيانات (JSON)</button>
+          <button class="btn" id="btnImport">⬆️ استيراد بيانات</button>
+          <input type="file" id="importFile" accept=".json" style="display:none">
+        </div>
+      </div>
+      <div class="panel">
+        <h3>💱 العملة</h3>
+        <div class="form-row"><label>رمز العملة</label><input type="text" id="currencyInput" placeholder="د.ع"></div>
+        <div class="form-actions"><button class="btn" id="btnSaveCurrency">حفظ</button></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ===== نافذة منبثقة عامة ===== -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalBox">
+    <div class="modal-head"><h2 id="modalTitle"></h2><button class="close-x" id="modalClose">✕</button></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- ===== قالب طباعة الفاتورة ===== -->
+<div id="printArea"></div>
+
+<div id="toast"></div>
+
+<script src="js/db.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
