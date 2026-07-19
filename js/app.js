@@ -1179,6 +1179,7 @@ function renderUsers() {
     <td>${esc((p.created_at||'').slice(0,10))}</td>
     <td><div class="actions">
       <button class="btn sm" onclick="userNameForm('${p.id}')">✏️ الاسم</button>
+      <button class="btn sm" onclick="passwordForm('${p.id}')">🔑 كلمة المرور</button>
       ${p.id!==USER?.id ? `
       <button class="btn sm" onclick="toggleUser('${p.id}', ${p.active})">${p.active?'⏸️ إيقاف':'▶️ تفعيل'}</button>
       <button class="btn sm" onclick="userRoleForm('${p.id}')">🔁 الدور</button>
@@ -1262,6 +1263,42 @@ window.saveUserName = async function(id) {
   try { await DB.update('profiles', id, { name }); closeModal(); toast('تم التعديل ✔', 'ok'); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
+// إظهار / إخفاء كلمة المرور
+window.togglePass = function(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.classList.toggle('on', show);
+  btn.textContent = show ? '🙈' : '👁';
+};
+
+// تغيير كلمة المرور (لنفسي أو لمستخدم آخر - للمالك)
+window.passwordForm = function(id) {
+  const p = S.profiles.find(x=>x.id===id);
+  const isSelf = id === USER?.id;
+  modal(`🔑 كلمة مرور جديدة: ${esc(p.name)}${isSelf?' (أنت)':''}`, `
+    <div class="form-row"><label>كلمة المرور الجديدة (6 أحرف فأكثر)</label>
+      <div class="pass-wrap">
+        <input id="f_newpass" type="password" dir="ltr">
+        <button type="button" class="eye-btn" onclick="togglePass('f_newpass', this)">👁</button>
+      </div></div>
+    ${isSelf ? '<div class="hint">ستبقى جلستك الحالية مفتوحة، وتستخدم الكلمة الجديدة في الدخول القادم.</div>'
+             : `<div class="hint">بلّغ ${esc(p.name)} بالكلمة الجديدة شفهياً — جلساته المفتوحة تبقى تعمل حتى يسجل خروجاً.</div>`}
+    <div class="form-actions">
+      <button class="btn primary" onclick="savePassword('${id}', ${isSelf})">💾 تغيير كلمة المرور</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.savePassword = async function(id, isSelf) {
+  const pass = $('#f_newpass').value;
+  if (pass.length < 6) return toast('كلمة المرور 6 أحرف على الأقل', 'err');
+  try {
+    if (isSelf) await DB.changeMyPassword(pass);
+    else await DB.adminSetPassword(id, pass);
+    closeModal(); toast('✔ تم تغيير كلمة المرور', 'ok');
+  } catch(e) { toast('خطأ: ' + sbErrorAr(e.message), 'err'); }
+};
+
 window.delUser = async function(id) {
   const p = S.profiles.find(x=>x.id===id);
   if (p.role === 'owner' && S.profiles.filter(x=>x.role==='owner' && x.active).length <= 1)

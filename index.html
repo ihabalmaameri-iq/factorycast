@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=9">
+<link rel="stylesheet" href="css/style.css?v=10">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -241,14 +241,21 @@
       <div class="form-row"><label>اسم المستخدم أو البريد</label>
         <input id="loginEmail" autocomplete="username" required></div>
       <div class="form-row"><label>كلمة المرور</label>
-        <input id="loginPass" type="password" autocomplete="current-password" required></div>
+        <div class="pass-wrap">
+          <input id="loginPass" type="password" autocomplete="current-password" required>
+          <button type="button" class="eye-btn" onclick="togglePass('loginPass', this)">👁</button>
+        </div></div>
       <button class="btn primary" type="submit" style="width:100%">🔐 دخول</button>
     </form>
     <button class="btn ghost" id="btnFirstRun" style="width:100%;margin-top:10px">🆕 أول تشغيل؟ إنشاء حساب المالك</button>
     <div id="firstRunBox" style="display:none;text-align:right;margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
       <div class="form-row"><label>الاسم الظاهر</label><input id="fr_name" placeholder="مرتضى"></div>
       <div class="form-row"><label>اسم المستخدم (أحرف إنجليزية)</label><input id="fr_user" dir="ltr" placeholder="murtadha"></div>
-      <div class="form-row"><label>كلمة المرور (6 أحرف فأكثر)</label><input id="fr_pass" type="password" dir="ltr"></div>
+      <div class="form-row"><label>كلمة المرور (6 أحرف فأكثر)</label>
+        <div class="pass-wrap">
+          <input id="fr_pass" type="password" dir="ltr">
+          <button type="button" class="eye-btn" onclick="togglePass('fr_pass', this)">👁</button>
+        </div></div>
       <button class="btn primary" id="btnCreateOwner" style="width:100%">👑 إنشاء حساب المالك</button>
     </div>
     <div id="loginError"></div>
@@ -260,7 +267,7 @@
 
 <div id="toast"></div>
 
-<script src="js/db.js?v=9"></script>
-<script src="js/app.js?v=9"></script>
+<script src="js/db.js?v=10"></script>
+<script src="js/app.js?v=10"></script>
 </body>
 </html>

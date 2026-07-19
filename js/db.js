@@ -80,6 +80,15 @@ const DB = (() => {
     if (error) throw new Error(error.message);
     return data;
   }
+  // تغيير كلمة مرور مستخدم آخر (للمالك - عبر دالة آمنة في الخادم)
+  async function adminSetPassword(userId, newPassword) {
+    return rpc('admin_set_password', { target_user: userId, new_password: newPassword });
+  }
+  // تغيير كلمة مروري أنا
+  async function changeMyPassword(newPassword) {
+    const { error } = await sb.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+  }
   // إنشاء حساب المالك الأول (يسجل الدخول مباشرة بالجلسة الرئيسية)
   async function signUpOwner(email, password) {
     const { data, error } = await sb.auth.signUp({ email, password });
@@ -182,7 +191,7 @@ const DB = (() => {
   return {
     connect, list, insert, update, remove, clearAllData, listAudit,
     getConfig, setConfig, exportData, importData,
-    getUser, signIn, signOut, createUser, rpc, signUpOwner,
+    getUser, signIn, signOut, createUser, rpc, signUpOwner, adminSetPassword, changeMyPassword,
     get backend() { return backend; }
   };
 })();
