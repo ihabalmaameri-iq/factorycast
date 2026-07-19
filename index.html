@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>نظام إدارة مصنع الصبّ</title>
+<title>شركة بوابة الخليج — نظام الإدارة</title>
+<link rel="icon" type="image/png" href="assets/logo.png">
+<link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=7">
+<link rel="stylesheet" href="css/style.css?v=8">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -14,7 +16,7 @@
 <div class="layout">
   <!-- ===== الشريط الجانبي ===== -->
   <aside class="sidebar">
-    <div class="brand">🏭 مصنع الصبّ</div>
+    <div class="brand"><img src="assets/logo.png" class="brand-logo" alt="" onerror="this.remove()"><span>شركة بوابة الخليج</span></div>
     <nav id="nav">
       <button class="nav-btn active" data-page="dashboard">📊 لوحة التحكم</button>
       <button class="nav-btn" data-page="materials">🧱 المواد الخام</button>
@@ -231,8 +233,9 @@
 <!-- ===== شاشة تسجيل الدخول ===== -->
 <div id="loginScreen" style="display:none">
   <div class="login-card">
-    <div class="login-logo">🏭</div>
-    <h1>نظام إدارة مصنع الصبّ</h1>
+    <div class="login-logo"><img src="assets/logo.png" alt="" style="max-width:130px;max-height:130px" onerror="this.parentElement.textContent='🏭'"></div>
+    <h1>شركة بوابة الخليج</h1>
+    <div class="hint" style="text-align:center">للكونكريت الجاهز — نظام الإدارة</div>
     <p class="muted" style="text-align:center">سجّل الدخول للمتابعة</p>
     <form id="loginForm">
       <div class="form-row"><label>اسم المستخدم أو البريد</label>
@@ -257,7 +260,7 @@
 
 <div id="toast"></div>
 
-<script src="js/db.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
+<script src="js/db.js?v=8"></script>
+<script src="js/app.js?v=8"></script>
 </body>
 </html>

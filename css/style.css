@@ -16,7 +16,8 @@ body { background:var(--bg); color:var(--text); font-size:15px; }
   width:230px; background:var(--sidebar); color:var(--sidebar-text);
   display:flex; flex-direction:column; position:sticky; top:0; height:100vh; flex-shrink:0;
 }
-.brand { font-size:19px; font-weight:900; color:#fff; padding:22px 18px; border-bottom:1px solid #1e293b; }
+.brand { font-size:16.5px; font-weight:900; color:#fff; padding:16px 18px; border-bottom:1px solid #1e293b; display:flex; align-items:center; gap:10px; }
+.brand-logo { width:38px; height:38px; object-fit:contain; background:#fff; border-radius:10px; padding:2px; flex-shrink:0; }
 #nav { display:flex; flex-direction:column; padding:10px; gap:4px; flex:1; overflow-y:auto; min-height:0; }
 #nav::-webkit-scrollbar { width:5px; }
 #nav::-webkit-scrollbar-thumb { background:#334155; border-radius:99px; }

@@ -707,7 +707,11 @@ window.printInvoice = function(id) {
   $('#printArea').innerHTML = `
     <div class="inv-print">
       <div class="inv-head">
-        <div><h1>🏭 مصنع الصبّ</h1><div>فاتورة مبيعات</div></div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <img src="assets/logo.png" alt="" style="width:85px;height:85px;object-fit:contain" onerror="this.remove()">
+          <div><h1>شركة بوابة الخليج</h1><div>للكونكريت الجاهز — فاتورة مبيعات</div>
+          <div style="font-size:13px">📞 <span dir="ltr">078000002060</span></div></div>
+        </div>
         <div class="inv-meta">
           <b>رقم الفاتورة:</b> ${esc(v.invoice_no)}<br>
           <b>التاريخ:</b> ${esc(v.date)}
