@@ -17,11 +17,11 @@ const ROLE_PAGES = {
   manager:    ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports'],
   accountant: ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports']
 };
-// أقسام يحق للدور تعديلها (المالك يعدل كل شيء، المدير عرض فقط)
+// أقسام يحق للدور تعديلها (المالك حصرياً: الشركاء، الحسابات، السجل، الإعدادات)
 const ROLE_EDIT = {
   owner:      ['materials','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
-  manager:    [],
-  accountant: ['customers','sales','vehicles','expenses','employees']
+  manager:    ['materials','mixtures','customers','sales','vehicles','expenses','employees'],
+  accountant: ['materials','mixtures','customers','sales','vehicles','expenses','employees']
 };
 const canView = page => ROLE_PAGES[ROLE].includes(page);
 const canEdit = section => ROLE_EDIT[ROLE].includes(section);
@@ -1164,9 +1164,9 @@ function renderUsers() {
   $('#rolesHelp').innerHTML = `
     <table class="tbl">
       <tr><th>الدور</th><th>الصلاحيات</th></tr>
-      <tr><td>👑 المالك</td><td>كل شيء: الحسابات، الشركاء والأرباح، وكل الأقسام</td></tr>
-      <tr><td>📋 المدير</td><td>متابعة لوحة التحكم والتقارير وكل الأقسام <b>عرضاً فقط</b> دون تعديل</td></tr>
-      <tr><td>🧮 المحاسب</td><td>تعديل: المبيعات، الزبائن، المصاريف، الرواتب، النقل — وعرض المواد والخلطات. لا يرى الشركاء ولا الحسابات</td></tr>
+      <tr><td>👑 المالك</td><td>كل شيء — وحصرياً: الشركاء والأرباح، سجل الحركات، إدارة الحسابات، الإعدادات</td></tr>
+      <tr><td>📋 المدير</td><td>عمل كامل في كل الأقسام التشغيلية: مواد، خلطات، مبيعات، زبائن، مصاريف، رواتب، نقل</td></tr>
+      <tr><td>🧮 المحاسب</td><td>عمل كامل في كل الأقسام التشغيلية: مواد، خلطات، مبيعات، زبائن، مصاريف، رواتب، نقل</td></tr>
     </table>`;
   if (DB.backend !== 'supabase') {
     $('#userTable').innerHTML = '<tr><td class="empty-row">⚠️ إدارة الحسابات تعمل فقط عند الاتصال بقاعدة البيانات السحابية</td></tr>';
