@@ -13,7 +13,7 @@ let USER = null;              // مستخدم Supabase الحالي
 const ROLE_NAMES = { owner:'👑 المالك', manager:'📋 المدير', accountant:'🧮 المحاسب' };
 // الصفحات المتاحة لكل دور
 const ROLE_PAGES = {
-  owner:      ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','users','settings'],
+  owner:      ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','audit','users','settings'],
   manager:    ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports'],
   accountant: ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports']
 };
@@ -90,7 +90,7 @@ function renderPage(page) {
   ({dashboard:renderDashboard, materials:renderMaterials, mixtures:renderMixtures,
     customers:renderCustomers, sales:renderSales, expenses:renderExpenses,
     vehicles:renderVehicles, employees:renderEmployees, partners:renderPartners,
-    users:renderUsers, reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
+    users:renderUsers, audit:renderAudit, reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
 }
 function currentPage() {
   const b = $('.nav-btn.active'); return b ? b.dataset.page : 'dashboard';
@@ -136,11 +136,14 @@ function renderMaterials() {
         <td class="num">${fmt(mv.qty)} ${esc(m?m.unit:'')}</td>
         <td class="num">${mv.type==='in'&&mv.price?money(mv.price):'—'}</td>
         <td>${esc(mv.note||'')}</td>
+        <td>${canEdit('materials') ? `<div class="actions">
+          <button class="btn sm" onclick="movementForm(${mv.id})">✏️</button>
+          <button class="btn sm danger" onclick="delMovement(${mv.id})">🗑️</button></div>` : ''}</td>
       </tr>`;
     }).join('');
   $('#movTable').innerHTML = `
-    <tr><th>التاريخ</th><th>المادة</th><th>النوع</th><th>الكمية</th><th>سعر الوحدة</th><th>ملاحظة</th></tr>
-    ${movs || '<tr><td colspan="6" class="empty-row">لا توجد حركات</td></tr>'}`;
+    <tr><th>التاريخ</th><th>المادة</th><th>النوع</th><th>الكمية</th><th>سعر الوحدة</th><th>ملاحظة</th><th></th></tr>
+    ${movs || '<tr><td colspan="7" class="empty-row">لا توجد حركات</td></tr>'}`;
 }
 $('#matSearch').oninput = renderMaterials;
 
@@ -239,6 +242,42 @@ window.saveIssue = async function(matId) {
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 
+// تعديل / حذف حركة مخزون
+window.movementForm = function(id) {
+  const mv = S.movements.find(x=>x.id===id);
+  const m = matById(mv.material_id);
+  modal(`تعديل حركة (${mv.type==='in'?'توريد':'صرف'}): ${esc(m?m.name:'')}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>الكمية *</label><input id="f_qty" type="number" min="0" step="any" value="${mv.qty}"></div>
+      ${mv.type==='in'?`<div class="form-row"><label>سعر الوحدة (${CUR})</label><input id="f_price" type="number" min="0" step="any" value="${mv.price||0}"></div>`:''}
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${esc(mv.date)}"></div>
+      <div class="form-row"><label>ملاحظة</label><input id="f_note" value="${esc(mv.note||'')}"></div>
+    </div>
+    <div class="hint">⚠️ تعديل الحركة يغيّر الكمية الحالية للمادة تلقائياً.</div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveMovement(${id})">💾 حفظ التعديل</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveMovement = async function(id) {
+  const mv = S.movements.find(x=>x.id===id);
+  const qty = Number($('#f_qty').value);
+  if (!qty || qty <= 0) return toast('أدخل كمية صحيحة', 'err');
+  const patch = { qty, date: $('#f_date').value || mv.date, note: $('#f_note').value.trim() };
+  if (mv.type === 'in') patch.price = Number($('#f_price').value)||0;
+  try {
+    await DB.update('movements', id, patch);
+    closeModal(); toast('تم التعديل ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delMovement = async function(id) {
+  const mv = S.movements.find(x=>x.id===id);
+  const m = matById(mv.material_id);
+  if (!confirm(`حذف حركة ${mv.type==='in'?'التوريد':'الصرف'} (${fmt(mv.qty)} ${m?m.unit:''}) للمادة "${m?m.name:''}"؟\nستتغير الكمية الحالية تلقائياً.`)) return;
+  try { await DB.remove('movements', id); toast('تم الحذف', 'ok'); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
 window.delMaterial = async function(id) {
   const m = matById(id);
   if (S.mixture_items.some(i => i.material_id === id)) return toast('لا يمكن حذف مادة مستخدمة في خلطات', 'err');
@@ -268,8 +307,8 @@ function renderMixtures() {
         <td>${cust ? esc(cust.name) : '—'}</td>
         <td><span class="badge ${m.status==='executed'?'done':'draft'}">${m.status==='executed'?'✔ منفذة':'⏳ مسودة'}</span></td>
         <td>${canEdit('mixtures') ? `<div class="actions">
-          ${m.status!=='executed' ? `<button class="btn sm primary" onclick="executeMixture(${m.id})">▶️ تنفيذ</button>
-          <button class="btn sm" onclick="mixtureForm(${m.id})">✏️</button>` : ''}
+          ${m.status!=='executed' ? `<button class="btn sm primary" onclick="executeMixture(${m.id})">▶️ تنفيذ</button>` : ''}
+          <button class="btn sm" onclick="mixtureForm(${m.id})">✏️</button>
           <button class="btn sm danger" onclick="delMixture(${m.id})">🗑️</button>
         </div>` : '<span class="hint">عرض فقط</span>'}</td>
       </tr>`;
@@ -285,7 +324,8 @@ window.mixtureForm = function(id) {
   if (!S.materials.length) return toast('أضف مواد خام أولاً', 'err');
   const m = id ? mixById(id) : null;
   const items = id ? mixItems(id) : [];
-  modal(m ? 'تعديل خلطة' : 'خلطة جديدة', `
+  const executed = m && m.status === 'executed';
+  modal(m ? (executed ? 'تعديل خلطة منفذة (البيانات فقط)' : 'تعديل خلطة') : 'خلطة جديدة', `
     <div class="form-grid">
       <div class="form-row"><label>اسم الخلطة *</label><input id="f_name" value="${esc(m?.name||'')}" placeholder="خلطة خرسانة C30 مثلاً"></div>
       <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${m?.date||today()}"></div>
@@ -296,21 +336,24 @@ window.mixtureForm = function(id) {
     <div class="form-row"><label>الزبون (اختياري)</label>
       <select id="f_cust"><option value="">— بدون زبون —</option>
       ${S.customers.map(c=>`<option value="${c.id}" ${m?.customer_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
+    ${executed ? '<div class="hint">⚠️ الخلطة منفذة — المكونات مثبتة لأن المواد خُصمت من المخزون. يمكن تعديل البيانات الأساسية فقط.</div>' : `
     <div class="form-row"><label>المكونات (من المخزون)</label>
       <div id="ingList"></div>
       <button class="btn sm" onclick="addIngRow()">➕ إضافة مكوّن</button>
     </div>
-    <div class="calc-box" id="mixCalc"></div>
+    <div class="calc-box" id="mixCalc"></div>`}
     <div class="form-row" style="margin-top:12px"><label>ملاحظات</label><input id="f_notes" value="${esc(m?.notes||'')}"></div>
     <div class="form-actions">
       <button class="btn primary" onclick="saveMixture(${id||0})">💾 حفظ الخلطة</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>`);
-  $('#ingList').innerHTML = '';
-  ingCounter = 0;
-  if (items.length) items.forEach(i => addIngRow(i.material_id, i.qty));
-  else addIngRow();
-  recalcMix();
+  if (!executed) {
+    $('#ingList').innerHTML = '';
+    ingCounter = 0;
+    if (items.length) items.forEach(i => addIngRow(i.material_id, i.qty));
+    else addIngRow();
+    recalcMix();
+  }
 };
 
 window.addIngRow = function(matId, qty) {
@@ -359,8 +402,9 @@ window.recalcMix = function() {
 window.saveMixture = async function(id) {
   const name = $('#f_name').value.trim();
   if (!name) return toast('اسم الخلطة مطلوب', 'err');
-  const ings = readIngredients();
-  if (!ings.length) return toast('أضف مكوّناً واحداً على الأقل', 'err');
+  const executed = id && mixById(id)?.status === 'executed';
+  const ings = executed ? [] : readIngredients();
+  if (!executed && !ings.length) return toast('أضف مكوّناً واحداً على الأقل', 'err');
   const data = {
     name, date: $('#f_date').value || today(),
     output_qty: Number($('#f_out').value)||0,
@@ -372,8 +416,10 @@ window.saveMixture = async function(id) {
     let mixId = id;
     if (id) {
       await DB.update('mixtures', id, data);
-      // إعادة بناء المكونات
-      for (const it of mixItems(id)) await DB.remove('mixture_items', it.id);
+      if (!executed) {
+        // إعادة بناء المكونات (للمسودات فقط)
+        for (const it of mixItems(id)) await DB.remove('mixture_items', it.id);
+      }
     } else {
       const row = await DB.insert('mixtures', { ...data, status:'draft', cost:0 });
       mixId = row.id;
@@ -544,7 +590,8 @@ function renderSales() {
         <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مدفوعة':'آجلة'}</span></td>
         <td><div class="actions">
           <button class="btn sm" onclick="printInvoice(${v.id})">🖨️ طباعة</button>
-          ${canEdit('sales') ? `<button class="btn sm" onclick="togglePaid(${v.id})">${v.paid?'↩️':'💵 تسديد'}</button>
+          ${canEdit('sales') ? `<button class="btn sm" onclick="saleForm(${v.id})">✏️</button>
+          <button class="btn sm" onclick="togglePaid(${v.id})">${v.paid?'↩️':'💵 تسديد'}</button>
           <button class="btn sm danger" onclick="delInvoice(${v.id})">🗑️</button>` : ''}
         </div></td>
       </tr>`;
@@ -555,42 +602,44 @@ function renderSales() {
 }
 $('#saleSearch').oninput = renderSales;
 
-window.saleForm = function() {
+window.saleForm = function(id) {
   if (!S.customers.length) return toast('أضف زبوناً أولاً', 'err');
-  const executed = S.mixtures.filter(m => m.status === 'executed');
-  modal('فاتورة جديدة', `
+  const v = id ? S.invoices.find(x=>x.id===id) : null;
+  const executed = S.mixtures.filter(m => m.status === 'executed' || (v && m.id === v.mixture_id));
+  modal(v ? `تعديل الفاتورة ${esc(v.invoice_no)}` : 'فاتورة جديدة', `
     <div class="form-grid">
-      <div class="form-row"><label>رقم الفاتورة</label><input id="f_no" value="${nextInvoiceNo()}" dir="ltr"></div>
-      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${today()}"></div>
+      <div class="form-row"><label>رقم الفاتورة</label><input id="f_no" value="${esc(v?v.invoice_no:nextInvoiceNo())}" dir="ltr"></div>
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${esc(v?.date||today())}"></div>
     </div>
     <div class="form-row"><label>الزبون *</label>
-      <select id="f_cust">${S.customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+      <select id="f_cust">${S.customers.map(c=>`<option value="${c.id}" ${v?.customer_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
     <div class="form-row"><label>الخلطة (المنفذة فقط)</label>
       <select id="f_mix" onchange="saleRecalc()">
         <option value="">— بيع بدون خلطة —</option>
-        ${executed.map(m=>`<option value="${m.id}">${esc(m.name)} (#${m.id}) — ${fmt(m.output_qty)} ${esc(m.output_unit)}</option>`).join('')}
+        ${executed.map(m=>`<option value="${m.id}" ${v?.mixture_id===m.id?'selected':''}>${esc(m.name)} (#${m.id}) — ${fmt(m.output_qty)} ${esc(m.output_unit)}</option>`).join('')}
       </select></div>
     <div class="form-grid">
-      <div class="form-row"><label>الكمية المباعة</label><input id="f_qty" type="number" min="0" step="any" oninput="saleRecalc()"></div>
-      <div class="form-row"><label>الكلفة (${CUR})</label><input id="f_cost" type="number" min="0" step="any" oninput="saleRecalc(true)"></div>
-      <div class="form-row"><label>هامش الربح %</label><input id="f_margin" type="number" step="any" value="20" oninput="saleRecalc(true)"></div>
-      <div class="form-row"><label>المبلغ النهائي (${CUR})</label><input id="f_total" type="number" min="0" step="any"></div>
+      <div class="form-row"><label>الكمية المباعة</label><input id="f_qty" type="number" min="0" step="any" value="${v?.qty??''}" oninput="saleRecalc()"></div>
+      <div class="form-row"><label>الكلفة (${CUR})</label><input id="f_cost" type="number" min="0" step="any" value="${v?.cost??''}" oninput="saleRecalc(true)"></div>
+      <div class="form-row"><label>هامش الربح %</label><input id="f_margin" type="number" step="any" value="${v?.margin_pct??20}" oninput="saleRecalc(true)"></div>
+      <div class="form-row"><label>المبلغ النهائي (${CUR})</label><input id="f_total" type="number" min="0" step="any" value="${v?.total??''}"></div>
     </div>
     <div class="calc-box" id="saleCalc">اختر خلطة لحساب الكلفة تلقائياً من المواد الخام.</div>
     <div class="form-grid" style="margin-top:12px">
       <div class="form-row"><label>🚚 العربة الناقلة</label>
         <select id="f_vehicle"><option value="">— بدون —</option>
-        ${S.vehicles.map(x=>`<option value="${x.id}">${esc(x.name)}${x.driver?' — '+esc(x.driver):''}</option>`).join('')}</select></div>
-      <div class="form-row"><label>📍 موقع الإرسال</label><input id="f_loc" placeholder="العنوان / الموقع"></div>
-      <div class="form-row"><label>أجرة النقل (${CUR})</label><input id="f_dfee" type="number" min="0" step="any" value="0" oninput="saleRecalc(true)"></div>
+        ${S.vehicles.map(x=>`<option value="${x.id}" ${v?.vehicle_id===x.id?'selected':''}>${esc(x.name)}${x.driver?' — '+esc(x.driver):''}</option>`).join('')}</select></div>
+      <div class="form-row"><label>📍 موقع الإرسال</label><input id="f_loc" value="${esc(v?.delivery_location||'')}" placeholder="العنوان / الموقع"></div>
+      <div class="form-row"><label>أجرة النقل (${CUR})</label><input id="f_dfee" type="number" min="0" step="any" value="${v?.delivery_fee??0}" oninput="saleRecalc(true)"></div>
       <div class="form-row"><label>حالة الدفع</label>
-        <select id="f_paid"><option value="1">مدفوعة</option><option value="0">آجلة</option></select></div>
+        <select id="f_paid"><option value="1">مدفوعة</option><option value="0" ${v && !v.paid?'selected':''}>آجلة</option></select></div>
     </div>
-    <div class="form-row"><label>ملاحظات</label><input id="f_notes"></div>
+    <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(v?.notes||'')}"></div>
     <div class="form-actions">
-      <button class="btn primary" onclick="saveSale()">💾 إنشاء الفاتورة</button>
+      <button class="btn primary" onclick="saveSale(${id||0})">💾 ${v?'حفظ التعديل':'إنشاء الفاتورة'}</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>`);
+  if (v) saleRecalc(true);
 };
 
 window.saleRecalc = function(manual) {
@@ -610,28 +659,30 @@ window.saleRecalc = function(manual) {
   $('#saleCalc').innerHTML = `الكلفة: <b>${money(cost)}</b> + هامش <b>${fmt(margin)}%</b>${dfee?` + نقل <b>${money(dfee)}</b>`:''} = المبلغ النهائي: <b>${money(total)}</b>`;
 };
 
-window.saveSale = async function() {
+window.saveSale = async function(id) {
   const custId = Number($('#f_cust').value);
   const total = Number($('#f_total').value)||0;
   if (!custId) return toast('اختر الزبون', 'err');
   if (total <= 0) return toast('أدخل مبلغ الفاتورة', 'err');
+  const data = {
+    invoice_no: $('#f_no').value.trim() || nextInvoiceNo(),
+    date: $('#f_date').value || today(),
+    customer_id: custId,
+    mixture_id: Number($('#f_mix').value) || null,
+    qty: Number($('#f_qty').value)||0,
+    cost: Number($('#f_cost').value)||0,
+    margin_pct: Number($('#f_margin').value)||0,
+    total,
+    vehicle_id: Number($('#f_vehicle').value) || null,
+    delivery_location: $('#f_loc').value.trim(),
+    delivery_fee: Number($('#f_dfee').value)||0,
+    paid: $('#f_paid').value === '1',
+    notes: $('#f_notes').value.trim()
+  };
   try {
-    await DB.insert('invoices', {
-      invoice_no: $('#f_no').value.trim() || nextInvoiceNo(),
-      date: $('#f_date').value || today(),
-      customer_id: custId,
-      mixture_id: Number($('#f_mix').value) || null,
-      qty: Number($('#f_qty').value)||0,
-      cost: Number($('#f_cost').value)||0,
-      margin_pct: Number($('#f_margin').value)||0,
-      total,
-      vehicle_id: Number($('#f_vehicle').value) || null,
-      delivery_location: $('#f_loc').value.trim(),
-      delivery_fee: Number($('#f_dfee').value)||0,
-      paid: $('#f_paid').value === '1',
-      notes: $('#f_notes').value.trim()
-    });
-    closeModal(); toast('تم إنشاء الفاتورة ✔', 'ok'); await refresh();
+    if (id) await DB.update('invoices', id, data);
+    else await DB.insert('invoices', data);
+    closeModal(); toast(id ? 'تم تعديل الفاتورة ✔' : 'تم إنشاء الفاتورة ✔', 'ok'); await refresh();
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 
@@ -705,32 +756,37 @@ function renderExpenses() {
       <td><span class="badge draft">${esc(e.category)}</span></td>
       <td class="num">${money(e.amount)}</td>
       <td>${esc(e.note||'')}</td>
-      <td>${canEdit('expenses') ? `<div class="actions"><button class="btn sm danger" onclick="delExpense(${e.id})">🗑️</button></div>` : ''}</td>
+      <td>${canEdit('expenses') ? `<div class="actions">
+        <button class="btn sm" onclick="expenseForm(${e.id})">✏️</button>
+        <button class="btn sm danger" onclick="delExpense(${e.id})">🗑️</button></div>` : ''}</td>
     </tr>`).join('');
   $('#expTable').innerHTML = `
     <tr><th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr>
     ${rows || '<tr><td colspan="5" class="empty-row">لا توجد مصاريف مسجلة</td></tr>'}`;
 }
 
-window.expenseForm = function() {
-  modal('مصروف جديد', `
+window.expenseForm = function(id) {
+  const ex = id ? S.expenses.find(x=>x.id===id) : null;
+  modal(ex ? 'تعديل مصروف' : 'مصروف جديد', `
     <div class="form-grid">
-      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${today()}"></div>
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${esc(ex?.date||today())}"></div>
       <div class="form-row"><label>الفئة</label>
-        <select id="f_cat">${EXP_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
-      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any"></div>
-      <div class="form-row"><label>ملاحظة</label><input id="f_note"></div>
+        <select id="f_cat">${EXP_CATS.map(c=>`<option ${ex?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any" value="${ex?.amount??''}"></div>
+      <div class="form-row"><label>ملاحظة</label><input id="f_note" value="${esc(ex?.note||'')}"></div>
     </div>
     <div class="form-actions">
-      <button class="btn primary" onclick="saveExpense()">💾 حفظ</button>
+      <button class="btn primary" onclick="saveExpense(${id||0})">💾 حفظ</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>`);
 };
-window.saveExpense = async function() {
+window.saveExpense = async function(id) {
   const amount = Number($('#f_amount').value);
   if (!amount || amount <= 0) return toast('أدخل مبلغاً صحيحاً', 'err');
+  const data = { date: $('#f_date').value||today(), category: $('#f_cat').value, amount, note: $('#f_note').value.trim() };
   try {
-    await DB.insert('expenses', { date: $('#f_date').value||today(), category: $('#f_cat').value, amount, note: $('#f_note').value.trim() });
+    if (id) await DB.update('expenses', id, data);
+    else await DB.insert('expenses', data);
     closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
@@ -859,7 +915,9 @@ function renderEmployees() {
         <td>${esc(s.month||'—')}</td>
         <td class="num">${money(s.amount)}</td>
         <td>${esc(s.note||'')}</td>
-        <td>${ce ? `<button class="btn sm danger" onclick="delSalary(${s.id})">🗑️</button>` : ''}</td>
+        <td>${ce ? `<div class="actions">
+          <button class="btn sm" onclick="salaryForm(${s.id})">✏️</button>
+          <button class="btn sm danger" onclick="delSalary(${s.id})">🗑️</button></div>` : ''}</td>
       </tr>`;
     }).join('');
   $('#salTable').innerHTML = `
@@ -915,6 +973,29 @@ window.savePay = async function(empId) {
     await DB.insert('salaries', { employee_id: empId, amount, month: $('#f_month').value,
       date: $('#f_date').value || today(), note: $('#f_note').value.trim() });
     closeModal(); toast('تم تسجيل الراتب ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.salaryForm = function(id) {
+  const s = S.salaries.find(x=>x.id===id);
+  const e = S.employees.find(x=>x.id===s.employee_id);
+  modal(`تعديل راتب: ${esc(e?e.name:'')}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any" value="${s.amount}"></div>
+      <div class="form-row"><label>عن شهر</label><input id="f_month" type="month" value="${esc(s.month||'')}"></div>
+      <div class="form-row"><label>تاريخ الدفع</label><input id="f_date" type="date" value="${esc(s.date)}"></div>
+      <div class="form-row"><label>ملاحظة</label><input id="f_note" value="${esc(s.note||'')}"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveSalaryEdit(${id})">💾 حفظ التعديل</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveSalaryEdit = async function(id) {
+  const amount = Number($('#f_amount').value);
+  if (!amount || amount <= 0) return toast('أدخل مبلغاً صحيحاً', 'err');
+  try {
+    await DB.update('salaries', id, { amount, month: $('#f_month').value, date: $('#f_date').value, note: $('#f_note').value.trim() });
+    closeModal(); toast('تم التعديل ✔', 'ok'); await refresh();
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 window.delSalary = async function(id) {
@@ -982,7 +1063,9 @@ function renderPartners() {
       const p = S.partners.find(x=>x.id===w.partner_id);
       return `<tr><td>${esc(w.date)}</td><td>${esc(p?p.name:'—')}</td>
         <td class="num">${money(w.amount)}</td><td>${esc(w.note||'')}</td>
-        <td><button class="btn sm danger" onclick="delWithdrawal(${w.id})">🗑️</button></td></tr>`;
+        <td><div class="actions">
+          <button class="btn sm" onclick="withdrawEditForm(${w.id})">✏️</button>
+          <button class="btn sm danger" onclick="delWithdrawal(${w.id})">🗑️</button></div></td></tr>`;
     }).join('');
   $('#pwTable').innerHTML = `
     <tr><th>التاريخ</th><th>الشريك</th><th>المبلغ</th><th>ملاحظة</th><th></th></tr>
@@ -1035,6 +1118,28 @@ window.saveWithdrawal = async function(partnerId) {
     closeModal(); toast('تم تسجيل السحب ✔', 'ok'); await refresh();
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
+window.withdrawEditForm = function(id) {
+  const w = S.partner_withdrawals.find(x=>x.id===id);
+  const p = S.partners.find(x=>x.id===w.partner_id);
+  modal(`تعديل سحب: ${esc(p?p.name:'')}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any" value="${w.amount}"></div>
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${esc(w.date)}"></div>
+    </div>
+    <div class="form-row"><label>ملاحظة</label><input id="f_note" value="${esc(w.note||'')}"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveWithdrawEdit(${id})">💾 حفظ التعديل</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveWithdrawEdit = async function(id) {
+  const amount = Number($('#f_amount').value);
+  if (!amount || amount <= 0) return toast('أدخل مبلغاً صحيحاً', 'err');
+  try {
+    await DB.update('partner_withdrawals', id, { amount, date: $('#f_date').value, note: $('#f_note').value.trim() });
+    closeModal(); toast('تم التعديل ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
 window.delWithdrawal = async function(id) {
   if (!confirm('حذف هذا السحب؟')) return;
   try { await DB.remove('partner_withdrawals', id); await refresh(); }
@@ -1068,10 +1173,13 @@ function renderUsers() {
     <td>${ROLE_NAMES[p.role]||esc(p.role)}</td>
     <td><span class="badge ${p.active?'ok':'low'}">${p.active?'مفعّل':'موقوف'}</span></td>
     <td>${esc((p.created_at||'').slice(0,10))}</td>
-    <td>${p.id!==USER?.id ? `<div class="actions">
+    <td><div class="actions">
+      <button class="btn sm" onclick="userNameForm('${p.id}')">✏️ الاسم</button>
+      ${p.id!==USER?.id ? `
       <button class="btn sm" onclick="toggleUser('${p.id}', ${p.active})">${p.active?'⏸️ إيقاف':'▶️ تفعيل'}</button>
-      <button class="btn sm" onclick="userRoleForm('${p.id}')">🔁 تغيير الدور</button>
-    </div>` : ''}</td>
+      <button class="btn sm" onclick="userRoleForm('${p.id}')">🔁 الدور</button>
+      <button class="btn sm danger" onclick="delUser('${p.id}')">🗑️ حذف</button>` : ''}
+    </div></td>
   </tr>`).join('');
   $('#userTable').innerHTML = `
     <tr><th>الاسم</th><th>الدور</th><th>الحالة</th><th>تاريخ الإنشاء</th><th>إجراءات</th></tr>
@@ -1135,6 +1243,134 @@ window.saveUserRole = async function(id) {
   try { await DB.update('profiles', id, { role: $('#f_role').value }); closeModal(); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
+window.userNameForm = function(id) {
+  const p = S.profiles.find(x=>x.id===id);
+  modal('تعديل الاسم الظاهر', `
+    <div class="form-row"><label>الاسم</label><input id="f_name" value="${esc(p.name)}"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveUserName('${id}')">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveUserName = async function(id) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('الاسم مطلوب', 'err');
+  try { await DB.update('profiles', id, { name }); closeModal(); toast('تم التعديل ✔', 'ok'); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delUser = async function(id) {
+  const p = S.profiles.find(x=>x.id===id);
+  if (p.role === 'owner' && S.profiles.filter(x=>x.role==='owner' && x.active).length <= 1)
+    return toast('لا يمكن حذف المالك الوحيد في النظام', 'err');
+  if (!confirm(`حذف حساب "${p.name}"؟\nلن يستطيع الدخول للنظام نهائياً بعد الحذف.`)) return;
+  try {
+    await DB.remove('profiles', id);
+    toast('✔ تم حذف الحساب ومُنع من الدخول', 'ok');
+    await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
+   🕵️ سجل الحركات (للمالك فقط)
+   ===================================================== */
+const AUDIT_TABLES = {
+  materials:'المواد الخام', movements:'حركات المخزون', customers:'الزبائن',
+  mixtures:'الخلطات', mixture_items:'مكونات الخلطات', invoices:'الفواتير',
+  expenses:'المصاريف', vehicles:'العربات', partners:'الشركاء',
+  partner_withdrawals:'سحوبات الشركاء', employees:'الموظفون', salaries:'الرواتب', profiles:'حسابات الدخول'
+};
+const AUDIT_ACTIONS = {
+  insert:['➕ إضافة','ok'], update:['✏️ تعديل','draft'], delete:['🗑️ حذف','low']
+};
+const AUDIT_FIELDS = {
+  name:'الاسم', qty:'الكمية', unit_price:'سعر الوحدة', price:'السعر', min_qty:'حد التنبيه',
+  amount:'المبلغ', total:'المبلغ النهائي', cost:'الكلفة', margin_pct:'هامش الربح',
+  paid:'الدفع', date:'التاريخ', note:'الملاحظة', notes:'الملاحظات', phone:'الهاتف',
+  address:'العنوان', status:'الحالة', output_qty:'كمية المنتج', share_pct:'نسبة الشراكة',
+  base_salary:'الراتب الأساسي', delivery_fee:'أجرة النقل', delivery_location:'موقع الإرسال',
+  invoice_no:'رقم الفاتورة', category:'الفئة', role:'الدور', active:'مفعّل', driver:'السائق',
+  title:'الوظيفة', month:'الشهر', unit:'الوحدة', customer_id:'الزبون', vehicle_id:'العربة',
+  material_id:'المادة', mixture_id:'الخلطة', employee_id:'الموظف', partner_id:'الشريك'
+};
+
+function auditValue(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (v === true) return 'نعم';
+  if (v === false) return 'لا';
+  if (typeof v === 'number') return fmt(v);
+  return String(v).length > 40 ? String(v).slice(0,40)+'…' : String(v);
+}
+
+// وصف مختصر للسجل: اسم العنصر + أهم التغييرات
+function auditDesc(row) {
+  const d = row.new_data || row.old_data || {};
+  const label = d.name || d.invoice_no || d.category || (d.qty !== undefined ? `كمية ${fmt(d.qty)}` : '') || `#${row.record_id}`;
+  if (row.action !== 'update') {
+    const amt = d.total ?? d.amount ?? d.unit_price;
+    return `<b>${esc(auditValue(label))}</b>${amt !== undefined && amt !== null ? ` — ${money(amt)}` : ''}`;
+  }
+  // للتعديل: عرض الحقول المتغيرة (قديم ← جديد)
+  const oldD = row.old_data || {}, newD = row.new_data || {};
+  const skip = new Set(['created_at','id']);
+  const changes = [];
+  for (const k of Object.keys(newD)) {
+    if (skip.has(k)) continue;
+    if (JSON.stringify(oldD[k]) !== JSON.stringify(newD[k])) {
+      changes.push(`${AUDIT_FIELDS[k]||k}: ${esc(auditValue(oldD[k]))} ← <b>${esc(auditValue(newD[k]))}</b>`);
+    }
+    if (changes.length >= 3) break;
+  }
+  return `<b>${esc(auditValue(label))}</b>${changes.length ? '<div class="hint">'+changes.join(' • ')+'</div>' : ''}`;
+}
+
+let AUDIT_ROWS = [];
+async function renderAudit() {
+  if (DB.backend !== 'supabase') {
+    $('#auditTable').innerHTML = '<tr><td class="empty-row">⚠️ سجل الحركات يعمل فقط عند الاتصال بقاعدة البيانات السحابية</td></tr>';
+    return;
+  }
+  try { AUDIT_ROWS = await DB.listAudit(500); }
+  catch(e) {
+    $('#auditTable').innerHTML = `<tr><td class="empty-row">تعذر جلب السجل: ${esc(sbErrorAr(e.message))}</td></tr>`;
+    return;
+  }
+  // تعبئة الفلاتر
+  const tSel = $('#audTable'), uSel = $('#audUser');
+  const tCur = tSel.value, uCur = uSel.value;
+  tSel.innerHTML = '<option value="">كل الأقسام</option>' +
+    Object.entries(AUDIT_TABLES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
+  uSel.innerHTML = '<option value="">كل المستخدمين</option>' +
+    [...new Set(AUDIT_ROWS.map(r=>r.user_name).filter(Boolean))].map(u=>`<option>${esc(u)}</option>`).join('');
+  tSel.value = tCur; uSel.value = uCur;
+  drawAuditRows();
+}
+
+function drawAuditRows() {
+  const from = $('#audFrom').value, to = $('#audTo').value;
+  const tF = $('#audTable').value, uF = $('#audUser').value;
+  const rows = AUDIT_ROWS.filter(r => {
+    const d = (r.at||'').slice(0,10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    if (tF && r.table_name !== tF) return false;
+    if (uF && r.user_name !== uF) return false;
+    return true;
+  }).map(r => {
+    const [aLabel, aClass] = AUDIT_ACTIONS[r.action] || [r.action,'draft'];
+    const time = new Date(r.at);
+    return `<tr>
+      <td style="white-space:nowrap">${time.toLocaleDateString('en-CA')}<div class="hint">${time.toLocaleTimeString('ar-IQ',{hour:'2-digit',minute:'2-digit'})}</div></td>
+      <td><b>${esc(r.user_name||'—')}</b></td>
+      <td><span class="badge ${aClass}">${aLabel}</span></td>
+      <td>${AUDIT_TABLES[r.table_name]||esc(r.table_name)}</td>
+      <td>${auditDesc(r)}</td>
+    </tr>`;
+  }).join('');
+  $('#auditTable').innerHTML = `
+    <tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>القسم</th><th>التفاصيل</th></tr>
+    ${rows || '<tr><td colspan="5" class="empty-row">لا توجد حركات مطابقة</td></tr>'}`;
+}
+$('#audApply').onclick = renderAudit;
 
 /* =====================================================
    📊 لوحة التحكم

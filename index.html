@@ -26,6 +26,7 @@
       <button class="nav-btn" data-page="employees">👷 الموظفون والرواتب</button>
       <button class="nav-btn" data-page="partners">🤝 الشركاء والأرباح</button>
       <button class="nav-btn" data-page="reports">📈 التقارير</button>
+      <button class="nav-btn" data-page="audit">🕵️ سجل الحركات</button>
       <button class="nav-btn" data-page="users">👤 المستخدمون</button>
       <button class="nav-btn" data-page="settings">⚙️ الإعدادات</button>
     </nav>
@@ -134,6 +135,21 @@
       <div class="panel"><div class="tbl-wrap"><table class="tbl" id="parTable"></table></div></div>
       <div class="panel"><h3>🧾 سجل سحوبات الشركاء</h3>
         <div class="tbl-wrap"><table class="tbl" id="pwTable"></table></div></div>
+    </section>
+
+    <!-- سجل الحركات -->
+    <section class="page" id="page-audit">
+      <div class="page-head"><h1>🕵️ سجل الحركات اليومية</h1>
+        <div class="filters">
+          <label>من <input type="date" id="audFrom"></label>
+          <label>إلى <input type="date" id="audTo"></label>
+          <select id="audTable"><option value="">كل الأقسام</option></select>
+          <select id="audUser"><option value="">كل المستخدمين</option></select>
+          <button class="btn" id="audApply">🔄 تحديث</button>
+        </div>
+      </div>
+      <p class="muted">يُسجَّل هنا تلقائياً كل إضافة وتعديل وحذف في النظام مع اسم المستخدم والوقت والتفاصيل — السجل محمي من الخادم ولا يمكن لأحد حذفه أو التلاعب به.</p>
+      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="auditTable"></table></div></div>
     </section>
 
     <!-- المستخدمون -->

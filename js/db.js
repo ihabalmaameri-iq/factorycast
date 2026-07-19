@@ -148,6 +148,14 @@ const DB = (() => {
     saveLocal();
   }
 
+  /* ---------- سجل الحركات (قراءة فقط - للمالك) ---------- */
+  async function listAudit(limit = 500) {
+    if (backend !== 'supabase') return [];
+    const { data, error } = await sb.from('audit_log').select('*').order('id', { ascending: false }).limit(limit);
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
   /* ---------- تصفير كل البيانات (لا يشمل حسابات الدخول) ---------- */
   async function clearAllData() {
     const order = ['movements','mixture_items','invoices','salaries','partner_withdrawals',
@@ -172,7 +180,7 @@ const DB = (() => {
   }
 
   return {
-    connect, list, insert, update, remove, clearAllData,
+    connect, list, insert, update, remove, clearAllData, listAudit,
     getConfig, setConfig, exportData, importData,
     getUser, signIn, signOut, createUser, rpc, signUpOwner,
     get backend() { return backend; }
