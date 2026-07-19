@@ -1448,6 +1448,10 @@ $('#btnLogout').onclick = async () => {
 
 // ---------- إنشاء حساب المالك الأول (يعمل مرة واحدة فقط) ----------
 function sbErrorAr(msg) {
+  if (/rate limit/i.test(msg))
+    return 'خيار Confirm email ما زال مفعّلاً في Supabase — أوقفه من: Authentication ← Sign In / Providers ← Email ثم أعد المحاولة';
+  if (/not confirmed/i.test(msg))
+    return 'هذا الحساب أُنشئ سابقاً بانتظار تفعيل البريد — احذفه من Supabase (Authentication ← Users) ثم أنشئه من جديد بعد إيقاف Confirm email';
   if (/confirmation email|error sending|smtp/i.test(msg))
     return 'يجب إيقاف خيار Confirm email في Supabase: Authentication ← Sign In / Providers ← Email';
   if (/does not exist|could not find|schema cache|404/i.test(msg))
