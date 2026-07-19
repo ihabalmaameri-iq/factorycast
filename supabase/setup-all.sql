@@ -1,25 +1,25 @@
-﻿-- =====================================================
+-- =====================================================
 -- الإعداد الكامل: شغّل هذا الملف وحده في Supabase > SQL Editor
 -- (يجمع schema.sql + schema2.sql — آمن لإعادة التشغيل)
 -- =====================================================
 
 -- =============================================
--- ظ†ط¸ط§ظ… ط¥ط¯ط§ط±ط© ظ…طµظ†ط¹ ط§ظ„طµط¨ظ‘ - ظ…ط®ط·ط· ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ
--- ط´ط؛ظ‘ظ„ ظ‡ط°ط§ ط§ظ„ظ…ظ„ظپ ظپظٹ Supabase > SQL Editor > New query
+-- نظام إدارة مصنع الصبّ - مخطط قاعدة البيانات
+-- شغّل هذا الملف في Supabase > SQL Editor > New query
 -- =============================================
 
--- 1) ط§ظ„ظ…ظˆط§ط¯ ط§ظ„ط®ط§ظ… (ظ„ط§ طھظƒط±ط§ط± ط¨ط§ظ„ط§ط³ظ…)
+-- 1) المواد الخام (لا تكرار بالاسم)
 create table if not exists materials (
   id bigint generated always as identity primary key,
   name text not null unique,
-  unit text not null default 'ظƒط؛ظ…',
+  unit text not null default 'كغم',
   unit_price numeric not null default 0,
   min_qty numeric not null default 0,
   notes text,
   created_at timestamptz not null default now()
 );
 
--- 2) ط­ط±ظƒط§طھ ط§ظ„ظ…ظˆط§ط¯ (طھظˆط±ظٹط¯ / طµط±ظپ) - ط§ظ„ظƒظ…ظٹط© ط§ظ„ط­ط§ظ„ظٹط© طھظڈط­ط³ط¨ ظ…ظ† ظ‡ط°ط§ ط§ظ„ط¬ط¯ظˆظ„
+-- 2) حركات المواد (توريد / صرف) - الكمية الحالية تُحسب من هذا الجدول
 create table if not exists movements (
   id bigint generated always as identity primary key,
   material_id bigint not null references materials(id) on delete cascade,
@@ -31,7 +31,7 @@ create table if not exists movements (
   created_at timestamptz not null default now()
 );
 
--- 3) ط§ظ„ط²ط¨ط§ط¦ظ† (ظ„ط§ طھظƒط±ط§ط± ط¨ط§ظ„ط§ط³ظ…)
+-- 3) الزبائن (لا تكرار بالاسم)
 create table if not exists customers (
   id bigint generated always as identity primary key,
   name text not null unique,
@@ -41,13 +41,13 @@ create table if not exists customers (
   created_at timestamptz not null default now()
 );
 
--- 4) ط§ظ„ط®ظ„ط·ط§طھ
+-- 4) الخلطات
 create table if not exists mixtures (
   id bigint generated always as identity primary key,
   name text not null,
   date date not null default current_date,
   output_qty numeric not null default 0,
-  output_unit text not null default 'ظƒط؛ظ…',
+  output_unit text not null default 'كغم',
   status text not null default 'draft' check (status in ('draft','executed')),
   cost numeric not null default 0,
   customer_id bigint references customers(id) on delete set null,
@@ -55,7 +55,7 @@ create table if not exists mixtures (
   created_at timestamptz not null default now()
 );
 
--- 5) ظ…ظƒظˆظ†ط§طھ ط§ظ„ط®ظ„ط·ط©
+-- 5) مكونات الخلطة
 create table if not exists mixture_items (
   id bigint generated always as identity primary key,
   mixture_id bigint not null references mixtures(id) on delete cascade,
@@ -63,7 +63,7 @@ create table if not exists mixture_items (
   qty numeric not null check (qty > 0)
 );
 
--- 6) ط§ظ„ظپظˆط§طھظٹط± / ط§ظ„ظ…ط¨ظٹط¹ط§طھ
+-- 6) الفواتير / المبيعات
 create table if not exists invoices (
   id bigint generated always as identity primary key,
   invoice_no text not null unique,
@@ -79,7 +79,7 @@ create table if not exists invoices (
   created_at timestamptz not null default now()
 );
 
--- 7) ط§ظ„ظ…طµط±ظˆظپط§طھ ط§ظ„ظٹظˆظ…ظٹط©
+-- 7) المصروفات اليومية
 create table if not exists expenses (
   id bigint generated always as identity primary key,
   date date not null default current_date,
@@ -90,8 +90,8 @@ create table if not exists expenses (
 );
 
 -- =============================================
--- ط§ظ„طµظ„ط§ط­ظٹط§طھ: ط³ظٹط§ط³ط§طھ ظ…ظپطھظˆط­ط© ظ„ظ„ظ…ظپطھط§ط­ ط§ظ„ط¹ط§ظ… (anon)
--- ظ…ظ„ط§ط­ط¸ط©: ظ„ط§ط­ظ‚ط§ظ‹ ظٹظ…ظƒظ† طھظپط¹ظٹظ„ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„ ظˆطھط´ط¯ظٹط¯ ط§ظ„ط³ظٹط§ط³ط§طھ
+-- الصلاحيات: سياسات مفتوحة للمفتاح العام (anon)
+-- ملاحظة: لاحقاً يمكن تفعيل تسجيل الدخول وتشديد السياسات
 -- =============================================
 alter table materials     enable row level security;
 alter table movements     enable row level security;
@@ -113,11 +113,11 @@ end $$;
 
 
 -- =====================================================
--- ط§ظ„ظ…ط±ط­ظ„ط© ط§ظ„ط«ط§ظ†ظٹط©: ط§ظ„ط­ط³ط§ط¨ط§طھ ظˆط§ظ„طµظ„ط§ط­ظٹط§طھ + ط§ظ„ظ†ظ‚ظ„ + ط§ظ„ط´ط±ظƒط§ط، + ط§ظ„ط±ظˆط§طھط¨
--- ط´ط؛ظ‘ظ„ ظ‡ط°ط§ ط§ظ„ظ…ظ„ظپ ظپظٹ Supabase > SQL Editor (ط¨ط¹ط¯ schema.sql)
+-- المرحلة الثانية: الحسابات والصلاحيات + النقل + الشركاء + الرواتب
+-- شغّل هذا الملف في Supabase > SQL Editor (بعد schema.sql)
 -- =====================================================
 
--- 1) ط§ظ„ط¹ط±ط¨ط§طھ / ط§ظ„ظ†ظ‚ظ„
+-- 1) العربات / النقل
 create table if not exists vehicles (
   id bigint generated always as identity primary key,
   name text not null,
@@ -127,12 +127,12 @@ create table if not exists vehicles (
   created_at timestamptz not null default now()
 );
 
--- ط¥ط¶ط§ظپط© ط­ظ‚ظˆظ„ ط§ظ„ظ†ظ‚ظ„ ظ„ظ„ظپظˆط§طھظٹط±
+-- إضافة حقول النقل للفواتير
 alter table invoices add column if not exists vehicle_id bigint references vehicles(id) on delete set null;
 alter table invoices add column if not exists delivery_location text;
 alter table invoices add column if not exists delivery_fee numeric not null default 0;
 
--- 2) ط§ظ„ط´ط±ظƒط§ط، ظˆط³ط­ظˆط¨ط§طھظ‡ظ…
+-- 2) الشركاء وسحوباتهم
 create table if not exists partners (
   id bigint generated always as identity primary key,
   name text not null unique,
@@ -151,7 +151,7 @@ create table if not exists partner_withdrawals (
   created_at timestamptz not null default now()
 );
 
--- 3) ط§ظ„ظ…ظˆط¸ظپظˆظ† ظˆط§ظ„ط±ظˆط§طھط¨
+-- 3) الموظفون والرواتب
 create table if not exists employees (
   id bigint generated always as identity primary key,
   name text not null,
@@ -173,7 +173,7 @@ create table if not exists salaries (
   created_at timestamptz not null default now()
 );
 
--- 4) ط§ظ„ظ…ظ„ظپط§طھ ط§ظ„ط´ط®طµظٹط© ظ„ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† (ظ…ط±طھط¨ط·ط© ط¨ط­ط³ط§ط¨ط§طھ ط§ظ„ط¯ط®ظˆظ„)
+-- 4) الملفات الشخصية للمستخدمين (مرتبطة بحسابات الدخول)
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null,
@@ -182,7 +182,7 @@ create table if not exists profiles (
   created_at timestamptz not null default now()
 );
 
--- ط¯ظˆط§ظ„ ظ…ط³ط§ط¹ط¯ط© (security definer ظ„طھط¬ط§ظˆط² RLS ط¯ط§ط®ظ„ظٹط§ظ‹)
+-- دوال مساعدة (security definer لتجاوز RLS داخلياً)
 create or replace function my_role() returns text
 language sql security definer stable as
 $$ select role from profiles where id = auth.uid() and active $$;
@@ -192,7 +192,7 @@ language sql security definer stable as
 $$ select count(*) from profiles $$;
 
 -- =====================================================
--- 5) طھط´ط¯ظٹط¯ ط§ظ„ط£ظ…ط§ظ†: ط§ظ„ط¯ط®ظˆظ„ ظ„ظ„ظ…ط³ط¬ظ„ظٹظ† ظپظ‚ط· (ط¥ظ„ط؛ط§ط، ط§ظ„ط³ظٹط§ط³ط§طھ ط§ظ„ظ…ظپطھظˆط­ط©)
+-- 5) تشديد الأمان: الدخول للمسجلين فقط (إلغاء السياسات المفتوحة)
 -- =====================================================
 alter table vehicles            enable row level security;
 alter table partners            enable row level security;
@@ -204,7 +204,7 @@ alter table profiles            enable row level security;
 do $$
 declare t text;
 begin
-  -- ط§ظ„ط¬ط¯ط§ظˆظ„ ط§ظ„طھط´ط؛ظٹظ„ظٹط©: ظƒظ„ ظ…ط³طھط®ط¯ظ… ظ…ط³ط¬ظ‘ظ„
+  -- الجداول التشغيلية: كل مستخدم مسجّل
   foreach t in array array['materials','movements','customers','mixtures','mixture_items','invoices','expenses','vehicles','employees','salaries']
   loop
     execute format('drop policy if exists "allow all %s" on %I', t, t);
@@ -213,7 +213,7 @@ begin
   end loop;
 end $$;
 
--- ط§ظ„ط´ط±ظƒط§ط، ظˆط§ظ„ط³ط­ظˆط¨ط§طھ: ط§ظ„ظ…ط§ظ„ظƒ ظپظ‚ط· (ط­ظ…ط§ظٹط© ظ…ظ† ط¬ظ‡ط© ط§ظ„ط®ط§ط¯ظ…)
+-- الشركاء والسحوبات: المالك فقط (حماية من جهة الخادم)
 drop policy if exists "partners owner" on partners;
 create policy "partners owner" on partners for all to authenticated
   using (my_role() = 'owner') with check (my_role() = 'owner');
@@ -221,7 +221,7 @@ drop policy if exists "withdrawals owner" on partner_withdrawals;
 create policy "withdrawals owner" on partner_withdrawals for all to authenticated
   using (my_role() = 'owner') with check (my_role() = 'owner');
 
--- ط§ظ„ظ…ظ„ظپط§طھ ط§ظ„ط´ط®طµظٹط©
+-- الملفات الشخصية
 drop policy if exists "profiles select" on profiles;
 create policy "profiles select" on profiles for select to authenticated using (true);
 drop policy if exists "profiles insert" on profiles;
@@ -233,4 +233,3 @@ create policy "profiles update" on profiles for update to authenticated
 drop policy if exists "profiles delete" on profiles;
 create policy "profiles delete" on profiles for delete to authenticated
   using (my_role() = 'owner');
-
