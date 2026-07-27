@@ -80,7 +80,10 @@ function mixtureCostNow(mixId) {
 }
 
 // ---------- التنقل بين الصفحات ----------
-$$('.nav-btn').forEach(btn => btn.onclick = () => showPage(btn.dataset.page));
+$$('.nav-btn').forEach(btn => btn.onclick = () => {
+  if (btn.dataset.page === 'customers') backToCustomers();
+  showPage(btn.dataset.page);
+});
 function showPage(page) {
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach(p => p.classList.toggle('active', p.id === 'page-'+page));
@@ -962,6 +965,8 @@ function renderCustomers() {
       const mixCount = S.mixtures.filter(m => m.customer_id === c.id).length;
       const invs = S.invoices.filter(v => v.customer_id === c.id);
       const total = invs.reduce((s,v)=>s+Number(v.total), 0);
+      const prof = invs.reduce((s,v)=>s+invProfit(v), 0);
+      const due = invs.filter(v=>!v.paid).reduce((s,v)=>s+Number(v.total), 0);
       return `<tr>
         <td class="num">#${c.id}</td>
         <td><b>${esc(c.name)}</b></td>
@@ -970,6 +975,9 @@ function renderCustomers() {
         <td class="num">${mixCount}</td>
         <td class="num">${invs.length}</td>
         <td class="num">${money(total)}</td>
+        <td class="num" style="color:${prof>=0?'var(--green)':'var(--red)'}">${money(prof)}
+          <div class="hint">${fmt((total>0?prof/total*100:0).toFixed(1))}%</div></td>
+        <td class="num" style="color:${due>0?'var(--red)':'inherit'}">${money(due)}</td>
         <td><div class="actions">
           <button class="btn sm" onclick="showCustomer(${c.id})">👁️ التفاصيل</button>
           ${canEdit('customers') ? `<button class="btn sm" onclick="customerForm(${c.id})">✏️</button>
@@ -978,8 +986,10 @@ function renderCustomers() {
       </tr>`;
     }).join('');
   $('#custTable').innerHTML = `
-    <tr><th>المعرف</th><th>اسم الزبون</th><th>الهاتف</th><th>العنوان</th><th>الخلطات</th><th>الفواتير</th><th>إجمالي المشتريات</th><th>إجراءات</th></tr>
-    ${rows || '<tr><td colspan="8" class="empty-row">لا يوجد زبائن بعد</td></tr>'}`;
+    <tr><th>المعرف</th><th>اسم الزبون</th><th>الهاتف</th><th>العنوان</th><th>الخلطات</th><th>الفواتير</th><th>إجمالي المشتريات</th><th>الربح</th><th>الآجل</th><th>إجراءات</th></tr>
+    ${rows || '<tr><td colspan="10" class="empty-row">لا يوجد زبائن بعد</td></tr>'}`;
+  // إعادة رسم ملف الزبون المفتوح بعد أي تحديث
+  if (CUR_CUSTOMER && $('#custDetailPanel').style.display === 'block') drawCustomer();
 }
 $('#custSearch').oninput = renderCustomers;
 
@@ -1013,36 +1023,240 @@ window.saveCustomer = async function(id) {
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 
+/* ---------- ملف الزبون التفصيلي ---------- */
+let CUR_CUSTOMER = null;
+const invProfit = v => Number(v.total) - Number(v.cost);
+
 window.showCustomer = function(id) {
-  const c = custById(id);
-  const mixes = S.mixtures.filter(m => m.customer_id === id);
-  const invs = S.invoices.filter(v => v.customer_id === id);
+  CUR_CUSTOMER = id;
+  $('#custListWrap').style.display = 'none';
   $('#custDetailPanel').style.display = 'block';
+  $('#cdFrom').value = ''; $('#cdTo').value = ''; $('#cdPaid').value = '';
+  drawCustomer();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+window.backToCustomers = function() {
+  CUR_CUSTOMER = null;
+  $('#custDetailPanel').style.display = 'none';
+  $('#custListWrap').style.display = 'block';
+};
+$('#cdBack').onclick = backToCustomers;
+$('#cdApply').onclick = () => drawCustomer();
+$('#cdPrint').onclick = () => printStatement();
+
+function customerData() {
+  const id = CUR_CUSTOMER;
+  const from = $('#cdFrom').value, to = $('#cdTo').value, paidF = $('#cdPaid').value;
+  let invs = S.invoices.filter(v => v.customer_id === id);
+  if (from || to) invs = invs.filter(v => inRange(v.date, from, to));
+  if (paidF !== '') invs = invs.filter(v => (v.paid ? '1' : '0') === paidF);
+  invs.sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+  return { c: custById(id), invs, from, to };
+}
+
+function drawCustomer() {
+  const { c, invs, from, to } = customerData();
+  if (!c) return backToCustomers();
   $('#custDetailTitle').textContent = `👤 ${c.name}`;
-  $('#custDetail').innerHTML = `
-    <p class="muted">📞 ${esc(c.phone||'—')} &nbsp;|&nbsp; 📍 ${esc(c.address||'—')} ${c.notes?`&nbsp;|&nbsp; 📝 ${esc(c.notes)}`:''}</p>
-    <h3>⚗️ الخلطات المزوّدة (${mixes.length})</h3>
+
+  const sales   = invs.reduce((s,v) => s + Number(v.total), 0);
+  const cogs    = invs.reduce((s,v) => s + Number(v.cost), 0);
+  const dfees   = invs.reduce((s,v) => s + Number(v.delivery_fee||0), 0);
+  const profit  = sales - cogs;
+  const pct     = sales > 0 ? profit / sales * 100 : 0;
+  const paidAmt = invs.filter(v => v.paid).reduce((s,v) => s + Number(v.total), 0);
+  const dueAmt  = sales - paidAmt;
+  const totalQty= invs.reduce((s,v) => s + Number(v.qty||0), 0);
+  const period  = (from || to) ? `${from||'البداية'} ← ${to||'اليوم'}` : 'كل الفترات';
+
+  // بطاقات الملخص
+  const cards = `<div class="cards">
+    <div class="card green"><div class="c-label">🧾 إجمالي المشتريات</div><div class="c-value">${money(sales)}</div>
+      <div class="c-sub">${invs.length} فاتورة — ${fmt(totalQty)} وحدة</div></div>
+    <div class="card amber"><div class="c-label">📦 كلفة المواد</div><div class="c-value">${money(cogs)}</div>
+      <div class="c-sub">${dfees>0?`أجور نقل: ${money(dfees)}`:''}</div></div>
+    <div class="card ${profit>=0?'green':'red'}"><div class="c-label">💰 الربح من هذا الزبون</div><div class="c-value">${money(profit)}</div>
+      <div class="c-sub">نسبة الربح: <b>${fmt(pct.toFixed(1))}%</b></div></div>
+    <div class="card ${dueAmt>0?'red':'green'}"><div class="c-label">⏳ المبلغ الآجل</div><div class="c-value">${money(dueAmt)}</div>
+      <div class="c-sub">المسدد: ${money(paidAmt)}</div></div>
+  </div>`;
+
+  // معلومات الزبون
+  const info = `<div class="panel">
+    <div class="recipe-head">
+      <div>
+        <h3 style="margin:0">📇 بيانات الزبون</h3>
+        <div class="hint" style="font-size:14px;line-height:2">
+          📞 <span dir="ltr">${esc(c.phone||'—')}</span> &nbsp;|&nbsp; 📍 ${esc(c.address||'—')}
+          ${c.notes?`<br>📝 ${esc(c.notes)}`:''}
+          <br>🗓️ الفترة المعروضة: <b>${esc(period)}</b>
+        </div>
+      </div>
+      ${canEdit('customers') ? `<div class="actions">
+        <button class="btn sm primary" onclick="saleFormFor(${c.id})">➕ فاتورة جديدة</button>
+        <button class="btn sm" onclick="customerForm(${c.id})">✏️ تعديل البيانات</button>
+      </div>` : ''}
+    </div>
+  </div>`;
+
+  // جدول الفواتير مع الأرباح
+  const invRows = invs.map(v => {
+    const mix = v.mixture_id ? mixById(v.mixture_id) : null;
+    const veh = v.vehicle_id ? S.vehicles.find(x=>x.id===v.vehicle_id) : null;
+    const p = invProfit(v);
+    const pp = Number(v.total) > 0 ? p / Number(v.total) * 100 : 0;
+    return `<tr>
+      <td><b>${esc(v.invoice_no)}</b></td>
+      <td>${esc(v.date)}</td>
+      <td>${mix?esc(mix.name):'—'}</td>
+      <td class="num">${fmt(v.qty)}</td>
+      <td class="num">${money(v.cost)}</td>
+      <td class="num">${money(v.delivery_fee||0)}</td>
+      <td class="num"><b>${money(v.total)}</b></td>
+      <td class="num" style="color:${p>=0?'var(--green)':'var(--red)'}"><b>${money(p)}</b>
+        <div class="hint">${fmt(pp.toFixed(1))}%</div></td>
+      <td>${v.delivery_location?`📍 ${esc(v.delivery_location)}`:'—'}${veh?`<div class="hint">🚚 ${esc(veh.name)}</div>`:''}</td>
+      <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مسددة':'آجلة'}</span></td>
+      <td><div class="actions">
+        <button class="btn sm primary" onclick="receiptForm(${v.id})">📄</button>
+        <button class="btn sm" onclick="printInvoice(${v.id})">🖨️</button>
+        ${canEdit('sales')?`<button class="btn sm" onclick="saleForm(${v.id})">✏️</button>`:''}
+      </div></td>
+    </tr>`;
+  }).join('');
+  const invTable = `<div class="panel">
+    <h3>🧾 فواتير الزبون (${invs.length})</h3>
     <div class="tbl-wrap"><table class="tbl">
-      <tr><th>ID</th><th>الخلطة</th><th>التاريخ</th><th>الكمية</th><th>الحالة</th></tr>
-      ${mixes.map(m=>`<tr><td>#${m.id}</td><td>${esc(m.name)}</td><td>${esc(m.date)}</td><td>${fmt(m.output_qty)} ${esc(m.output_unit)}</td>
-        <td><span class="badge ${m.status==='executed'?'done':'draft'}">${m.status==='executed'?'منفذة':'مسودة'}</span></td></tr>`).join('')
-        || '<tr><td colspan="5" class="empty-row">لا توجد خلطات</td></tr>'}
+      <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>الخلطة</th><th>الكمية</th><th>الكلفة</th><th>أجرة النقل</th><th>المبلغ</th><th>الربح</th><th>موقع التسليم</th><th>الدفع</th><th>إجراءات</th></tr>
+      ${invRows || '<tr><td colspan="11" class="empty-row">لا توجد فواتير ضمن هذه الفترة</td></tr>'}
+      ${invs.length ? `<tr style="background:#f8fafc;font-weight:900">
+        <td colspan="4">الإجمالي</td>
+        <td class="num">${money(cogs)}</td>
+        <td class="num">${money(dfees)}</td>
+        <td class="num">${money(sales)}</td>
+        <td class="num" style="color:${profit>=0?'var(--green)':'var(--red)'}">${money(profit)}</td>
+        <td colspan="3"></td></tr>` : ''}
     </table></div>
-    <h3 style="margin-top:14px">🧾 الفواتير (${invs.length})</h3>
-    <div class="tbl-wrap"><table class="tbl">
-      <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>المبلغ</th><th>الحالة</th></tr>
-      ${invs.map(v=>`<tr><td>${esc(v.invoice_no)}</td><td>${esc(v.date)}</td><td class="num">${money(v.total)}</td>
-        <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مدفوعة':'غير مدفوعة'}</span></td></tr>`).join('')
-        || '<tr><td colspan="4" class="empty-row">لا توجد فواتير</td></tr>'}
-    </table></div>`;
-  $('#custDetailPanel').scrollIntoView({behavior:'smooth'});
+  </div>`;
+
+  // تحليل شهري
+  const byMonth = {};
+  invs.forEach(v => {
+    const mo = (v.date||'').slice(0,7);
+    byMonth[mo] = byMonth[mo] || { sales:0, profit:0, n:0 };
+    byMonth[mo].sales += Number(v.total);
+    byMonth[mo].profit += invProfit(v);
+    byMonth[mo].n++;
+  });
+  const months = Object.keys(byMonth).sort();
+  const maxSale = Math.max(...months.map(m=>byMonth[m].sales), 1);
+  const chart = months.length ? `<div class="panel">
+    <h3>📊 مشتريات الزبون شهرياً</h3>
+    <div class="barchart">${months.map(mo => `
+      <div class="bar-col">
+        <div class="bar-val">${fmt(byMonth[mo].sales)}</div>
+        <div class="bar" style="height:${Math.max(byMonth[mo].sales/maxSale*100,1.5)}%"></div>
+        <div class="bar-label">${mo}</div>
+      </div>`).join('')}</div>
+    <div class="tbl-wrap" style="margin-top:12px"><table class="tbl">
+      <tr><th>الشهر</th><th>عدد الفواتير</th><th>المبيعات</th><th>الربح</th><th>نسبة الربح</th></tr>
+      ${months.slice().reverse().map(mo => {
+        const b = byMonth[mo];
+        return `<tr><td>${mo}</td><td class="num">${b.n}</td><td class="num">${money(b.sales)}</td>
+          <td class="num" style="color:${b.profit>=0?'var(--green)':'var(--red)'}">${money(b.profit)}</td>
+          <td class="num">${fmt((b.sales>0?b.profit/b.sales*100:0).toFixed(1))}%</td></tr>`;
+      }).join('')}
+    </table></div>
+  </div>` : '';
+
+  // الخلطات الأكثر طلباً + الخلطات المرتبطة به
+  const byMix = {};
+  invs.forEach(v => {
+    const key = v.mixture_id ? (mixById(v.mixture_id)?.name || '—') : 'بيع مباشر';
+    byMix[key] = byMix[key] || { qty:0, sales:0, profit:0, n:0 };
+    byMix[key].qty += Number(v.qty||0);
+    byMix[key].sales += Number(v.total);
+    byMix[key].profit += invProfit(v);
+    byMix[key].n++;
+  });
+  const mixStats = Object.entries(byMix).sort((a,b)=>b[1].sales-a[1].sales);
+  const linkedMixes = S.mixtures.filter(m => m.customer_id === CUR_CUSTOMER);
+  const analysis = `<div class="grid-2">
+    <div class="panel"><h3>⚗️ الأكثر طلباً</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>الخلطة</th><th>مرات</th><th>الكمية</th><th>المبيعات</th><th>الربح</th></tr>
+        ${mixStats.map(([n,b])=>`<tr><td>${esc(n)}</td><td class="num">${b.n}</td><td class="num">${fmt(b.qty)}</td>
+          <td class="num">${money(b.sales)}</td><td class="num">${money(b.profit)}</td></tr>`).join('')
+          || '<tr><td colspan="5" class="empty-row">لا بيانات</td></tr>'}
+      </table></div></div>
+    <div class="panel"><h3>🧪 الخلطات المزوّدة له (${linkedMixes.length})</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>الخلطة</th><th>التاريخ</th><th>الكمية</th><th>الكلفة</th><th>الحالة</th></tr>
+        ${linkedMixes.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(m.date)}</td>
+          <td class="num">${fmt(m.output_qty)} ${esc(m.output_unit)}</td><td class="num">${money(m.cost)}</td>
+          <td><span class="badge ${m.status==='executed'?'done':'draft'}">${m.status==='executed'?'منفذة':'مسودة'}</span></td></tr>`).join('')
+          || '<tr><td colspan="5" class="empty-row">لا خلطات مرتبطة</td></tr>'}
+      </table></div></div>
+  </div>`;
+
+  $('#custDetail').innerHTML = cards + info + invTable + chart + analysis;
+}
+
+// فاتورة جديدة لزبون محدد
+window.saleFormFor = function(custId) {
+  saleForm();
+  const sel = $('#f_cust');
+  if (sel) sel.value = String(custId);
+};
+
+// كشف حساب قابل للطباعة
+window.printStatement = function() {
+  const { c, invs, from, to } = customerData();
+  const sales = invs.reduce((s,v)=>s+Number(v.total),0);
+  const cogs  = invs.reduce((s,v)=>s+Number(v.cost),0);
+  const paid  = invs.filter(v=>v.paid).reduce((s,v)=>s+Number(v.total),0);
+  const due   = sales - paid;
+  const profit = sales - cogs;
+  $('#printArea').innerHTML = `
+    <div class="inv-print">
+      <div class="inv-head">
+        <div style="display:flex;align-items:center;gap:14px">
+          <img src="assets/logo.png" alt="" style="width:85px;height:85px;object-fit:contain" onerror="this.remove()">
+          <div><h1>شركة بوابة الخليج</h1><div>للكونكريت الجاهز — كشف حساب زبون</div>
+          <div style="font-size:13px">📞 <span dir="ltr">078000002060</span></div></div>
+        </div>
+        <div class="inv-meta">
+          <b>الزبون:</b> ${esc(c.name)}<br>
+          ${c.phone?`<b>الهاتف:</b> <span dir="ltr">${esc(c.phone)}</span><br>`:''}
+          <b>الفترة:</b> ${esc(from||'البداية')} ← ${esc(to||'اليوم')}<br>
+          <b>تاريخ الطباعة:</b> ${today()}
+        </div>
+      </div>
+      <table>
+        <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>البيان</th><th>الكمية</th><th>المبلغ</th><th>الحالة</th></tr>
+        ${invs.slice().reverse().map(v => {
+          const mix = v.mixture_id ? mixById(v.mixture_id) : null;
+          return `<tr><td>${esc(v.invoice_no)}</td><td>${esc(v.date)}</td>
+            <td>${mix?esc(mix.name):'بيع مباشر'}${v.delivery_location?` — ${esc(v.delivery_location)}`:''}</td>
+            <td>${fmt(v.qty)}</td><td>${money(v.total)}</td>
+            <td>${v.paid?'مسددة':'آجلة'}</td></tr>`;
+        }).join('') || '<tr><td colspan="6">لا توجد فواتير ضمن الفترة</td></tr>'}
+        <tr style="font-weight:900;background:#eee">
+          <td colspan="4">الإجمالي (${invs.length} فاتورة)</td><td>${money(sales)}</td><td></td></tr>
+      </table>
+      <div class="inv-total">
+        المسدد: ${money(paid)} &nbsp;|&nbsp; <span style="color:#b00">المتبقي بالذمة: ${money(due)}</span>
+      </div>
+      <p style="margin-top:34px;font-size:13px">التوقيع: ______________________ &nbsp;&nbsp;&nbsp; الإدارة: ______________________</p>
+    </div>`;
+  window.print();
 };
 
 window.delCustomer = async function(id) {
   const c = custById(id);
   if (S.invoices.some(v => v.customer_id === id)) return toast('لا يمكن حذف زبون لديه فواتير', 'err');
   if (!confirm(`حذف الزبون "${c.name}"؟`)) return;
-  try { await DB.remove('customers', id); $('#custDetailPanel').style.display='none'; toast('تم الحذف', 'ok'); await refresh(); }
+  try { await DB.remove('customers', id); backToCustomers(); toast('تم الحذف', 'ok'); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 

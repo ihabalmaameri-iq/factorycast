@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=13">
+<link rel="stylesheet" href="css/style.css?v=14">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -110,9 +110,26 @@
         <div><input type="search" id="custSearch" placeholder="🔍 بحث عن زبون...">
         <button class="btn primary" id="btnAddCustomer">➕ زبون جديد</button></div>
       </div>
-      <div class="panel"><div class="tbl-wrap"><table class="tbl" id="custTable"></table></div></div>
-      <div class="panel" id="custDetailPanel" style="display:none">
-        <h3 id="custDetailTitle"></h3><div id="custDetail"></div>
+      <div id="custListWrap">
+        <div class="panel"><div class="tbl-wrap"><table class="tbl" id="custTable"></table></div></div>
+      </div>
+      <div id="custDetailPanel" style="display:none">
+        <div class="page-head">
+          <h2 id="custDetailTitle"></h2>
+          <div class="filters">
+            <label>من <input type="date" id="cdFrom"></label>
+            <label>إلى <input type="date" id="cdTo"></label>
+            <select id="cdPaid">
+              <option value="">كل الفواتير</option>
+              <option value="1">المسددة فقط</option>
+              <option value="0">الآجلة فقط</option>
+            </select>
+            <button class="btn" id="cdApply">🔄 تصفية</button>
+            <button class="btn" id="cdPrint">🖨️ كشف حساب</button>
+            <button class="btn ghost" id="cdBack">↩️ رجوع للقائمة</button>
+          </div>
+        </div>
+        <div id="custDetail"></div>
       </div>
     </section>
 
@@ -290,7 +307,7 @@
 
 <div id="toast"></div>
 
-<script src="js/db.js?v=13"></script>
-<script src="js/app.js?v=13"></script>
+<script src="js/db.js?v=14"></script>
+<script src="js/app.js?v=14"></script>
 </body>
 </html>
