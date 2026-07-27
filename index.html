@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=12">
+<link rel="stylesheet" href="css/style.css?v=13">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -20,6 +20,7 @@
     <nav id="nav">
       <button class="nav-btn active" data-page="dashboard">📊 لوحة التحكم</button>
       <button class="nav-btn" data-page="materials">🧱 المواد الخام</button>
+      <button class="nav-btn" data-page="suppliers">🏪 الموردون</button>
       <button class="nav-btn" data-page="recipes">📋 الخلطات الجاهزة</button>
       <button class="nav-btn" data-page="mixtures">⚗️ الخلطات</button>
       <button class="nav-btn" data-page="customers">👥 الزبائن</button>
@@ -71,6 +72,18 @@
       <div class="panel"><div class="tbl-wrap"><table class="tbl" id="matTable"></table></div></div>
       <div class="panel"><h3>📦 حركات المواد (توريد / صرف)</h3>
         <div class="tbl-wrap"><table class="tbl" id="movTable"></table></div></div>
+    </section>
+
+    <!-- الموردون -->
+    <section class="page" id="page-suppliers">
+      <div class="page-head"><h1>🏪 الموردون</h1>
+        <div><input type="search" id="supSearch" placeholder="🔍 بحث عن مورد...">
+        <button class="btn primary" id="btnAddSupplier">➕ مورد جديد</button></div>
+      </div>
+      <div class="cards" id="supCards"></div>
+      <div id="suppliersList"></div>
+      <div class="panel"><h3>📥 آخر عمليات التوريد</h3>
+        <div class="tbl-wrap"><table class="tbl" id="supMovTable"></table></div></div>
     </section>
 
     <!-- الخلطات الجاهزة (الوصفات) -->
@@ -277,7 +290,7 @@
 
 <div id="toast"></div>
 
-<script src="js/db.js?v=12"></script>
-<script src="js/app.js?v=12"></script>
+<script src="js/db.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>

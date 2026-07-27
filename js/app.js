@@ -5,7 +5,7 @@
 // ---------- الحالة العامة ----------
 const S = { materials:[], movements:[], customers:[], mixtures:[], mixture_items:[], invoices:[], expenses:[],
             vehicles:[], partners:[], partner_withdrawals:[], employees:[], salaries:[], profiles:[],
-            recipes:[], recipe_items:[] };
+            recipes:[], recipe_items:[], suppliers:[], supplier_vehicles:[] };
 let CUR = localStorage.getItem('currency') || 'د.ع';
 
 // ---------- الصلاحيات ----------
@@ -14,15 +14,15 @@ let USER = null;              // مستخدم Supabase الحالي
 const ROLE_NAMES = { owner:'👑 المالك', manager:'📋 المدير', accountant:'🧮 المحاسب' };
 // الصفحات المتاحة لكل دور
 const ROLE_PAGES = {
-  owner:      ['dashboard','materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','audit','users','settings'],
-  manager:    ['dashboard','materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports'],
-  accountant: ['dashboard','materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports']
+  owner:      ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','audit','users','settings'],
+  manager:    ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports'],
+  accountant: ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports']
 };
 // أقسام يحق للدور تعديلها (المالك حصرياً: الشركاء، الحسابات، السجل، الإعدادات)
 const ROLE_EDIT = {
-  owner:      ['materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
-  manager:    ['materials','recipes','mixtures','customers','sales','vehicles','expenses','employees'],
-  accountant: ['materials','recipes','mixtures','customers','sales','vehicles','expenses','employees']
+  owner:      ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
+  manager:    ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees'],
+  accountant: ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees']
 };
 const canView = page => ROLE_PAGES[ROLE].includes(page);
 const canEdit = section => ROLE_EDIT[ROLE].includes(section);
@@ -88,7 +88,8 @@ function showPage(page) {
 }
 function renderPage(page) {
   if (!canView(page)) return;
-  ({dashboard:renderDashboard, materials:renderMaterials, recipes:renderRecipes, mixtures:renderMixtures,
+  ({dashboard:renderDashboard, materials:renderMaterials, suppliers:renderSuppliers,
+    recipes:renderRecipes, mixtures:renderMixtures,
     customers:renderCustomers, sales:renderSales, expenses:renderExpenses,
     vehicles:renderVehicles, employees:renderEmployees, partners:renderPartners,
     users:renderUsers, audit:renderAudit, reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
@@ -130,12 +131,16 @@ function renderMaterials() {
   const movs = [...S.movements].sort((a,b)=> (b.date||'').localeCompare(a.date||'') || b.id-a.id).slice(0,30)
     .map(mv => {
       const m = matById(mv.material_id);
+      const sup = mv.supplier_id ? supById(mv.supplier_id) : null;
+      const veh = mv.supplier_vehicle_id ? S.supplier_vehicles.find(v=>v.id===mv.supplier_vehicle_id) : null;
       return `<tr>
         <td>${esc(mv.date)}</td>
         <td>${esc(m?m.name:'—')}</td>
         <td><span class="badge ${mv.type}">${mv.type==='in'?'⬇️ توريد':'⬆️ صرف'}</span></td>
         <td class="num">${fmt(mv.qty)} ${esc(m?m.unit:'')}</td>
         <td class="num">${mv.type==='in'&&mv.price?money(mv.price):'—'}</td>
+        <td>${sup?`🏪 ${esc(sup.name)}${veh?`<div class="hint">🚛 ${esc(veh.name)}</div>`:''}`:'—'}</td>
+        <td>${mv.type==='in'?`${esc(mv.doc_no||'—')}<div class="hint"><span class="badge ${mv.paid===false?'low':'ok'}">${mv.paid===false?'آجل':'مسدد'}</span></div>`:'—'}</td>
         <td>${esc(mv.note||'')}</td>
         <td>${canEdit('materials') ? `<div class="actions">
           <button class="btn sm" onclick="movementForm(${mv.id})">✏️</button>
@@ -143,8 +148,8 @@ function renderMaterials() {
       </tr>`;
     }).join('');
   $('#movTable').innerHTML = `
-    <tr><th>التاريخ</th><th>المادة</th><th>النوع</th><th>الكمية</th><th>سعر الوحدة</th><th>ملاحظة</th><th></th></tr>
-    ${movs || '<tr><td colspan="7" class="empty-row">لا توجد حركات</td></tr>'}`;
+    <tr><th>التاريخ</th><th>المادة</th><th>النوع</th><th>الكمية</th><th>سعر الوحدة</th><th>المورد</th><th>رقم الوصل</th><th>ملاحظة</th><th></th></tr>
+    ${movs || '<tr><td colspan="9" class="empty-row">لا توجد حركات</td></tr>'}`;
 }
 $('#matSearch').oninput = renderMaterials;
 
@@ -193,25 +198,53 @@ window.saveMaterial = async function(id) {
 // توريد دفعة جديدة
 window.supplyForm = function(matId) {
   const m = matById(matId);
-  modal(`توريد دفعة: ${esc(m.name)}`, `
+  modal(`📥 توريد دفعة: ${esc(m.name)}`, `
     <div class="form-grid">
-      <div class="form-row"><label>الكمية *</label><input id="f_qty" type="number" min="0" step="any"></div>
-      <div class="form-row"><label>سعر الوحدة الجديد (${CUR})</label><input id="f_price" type="number" min="0" step="any" value="${m.unit_price}"></div>
+      <div class="form-row"><label>🏪 المورد</label>
+        <select id="f_supplier" onchange="onSupplierChange(); supplyCalc()">
+          <option value="">— بدون مورد —</option>
+          ${S.suppliers.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}
+        </select>
+        ${S.suppliers.length ? '' : '<div class="hint">لا يوجد موردون — أضفهم من صفحة 🏪 الموردون</div>'}</div>
+      <div class="form-row"><label>🚛 عربة المورد</label>
+        <select id="f_supveh" disabled><option value="">— اختر المورد أولاً —</option></select></div>
+      <div class="form-row"><label>الكمية * (${esc(m.unit)})</label><input id="f_qty" type="number" min="0" step="any" oninput="supplyCalc()"></div>
+      <div class="form-row"><label>سعر الوحدة (${CUR})</label><input id="f_price" type="number" min="0" step="any" value="${m.unit_price}" oninput="supplyCalc()"></div>
+      <div class="form-row"><label>📄 رقم وصل المورد</label><input id="f_doc" dir="ltr" placeholder="رقم الوصل / القائمة"></div>
       <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${today()}"></div>
-      <div class="form-row"><label>ملاحظة</label><input id="f_note" placeholder="اسم المورّد مثلاً"></div>
+      <div class="form-row"><label>حالة الدفع</label>
+        <select id="f_paid"><option value="1">مسدد</option><option value="0">آجل</option></select></div>
+      <div class="form-row"><label>ملاحظة</label><input id="f_note"></div>
     </div>
-    <div class="hint">الكمية الحالية: ${fmt(qtyOf(matId))} ${esc(m.unit)} — سيتم تحديث الإجمالي تلقائياً.</div>
+    <div class="calc-box" id="supplyCalcBox"></div>
+    <div class="hint">الكمية الحالية: ${fmt(qtyOf(matId))} ${esc(m.unit)} — ستُحدَّث تلقائياً بعد الحفظ.</div>
     <div class="form-actions">
       <button class="btn primary" onclick="saveSupply(${matId})">💾 إضافة التوريد</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>`);
+  supplyCalc();
+};
+window.supplyCalc = function() {
+  const qty = Number($('#f_qty').value)||0;
+  const price = Number($('#f_price').value)||0;
+  const sid = Number($('#f_supplier').value);
+  const s = sid ? supById(sid) : null;
+  $('#supplyCalcBox').innerHTML = `القيمة الإجمالية: <b>${money(qty*price)}</b>${s?` &nbsp;|&nbsp; المورد: <b>${esc(s.name)}</b>${s.phone?` (<span dir="ltr">${esc(s.phone)}</span>)`:''}`:''}`;
 };
 window.saveSupply = async function(matId) {
   const qty = Number($('#f_qty').value);
   if (!qty || qty <= 0) return toast('أدخل كمية صحيحة', 'err');
   const price = Number($('#f_price').value)||0;
   try {
-    await DB.insert('movements', { material_id: matId, type:'in', qty, price, note: $('#f_note').value.trim(), date: $('#f_date').value || today() });
+    await DB.insert('movements', {
+      material_id: matId, type:'in', qty, price,
+      supplier_id: Number($('#f_supplier').value) || null,
+      supplier_vehicle_id: Number($('#f_supveh').value) || null,
+      doc_no: $('#f_doc').value.trim(),
+      paid: $('#f_paid').value === '1',
+      note: $('#f_note').value.trim(),
+      date: $('#f_date').value || today()
+    });
     const m = matById(matId);
     if (price && price !== Number(m.unit_price)) await DB.update('materials', matId, { unit_price: price });
     closeModal(); toast('تم تسجيل التوريد ✔', 'ok'); await refresh();
@@ -249,8 +282,19 @@ window.movementForm = function(id) {
   const m = matById(mv.material_id);
   modal(`تعديل حركة (${mv.type==='in'?'توريد':'صرف'}): ${esc(m?m.name:'')}`, `
     <div class="form-grid">
+      ${mv.type==='in'?`
+      <div class="form-row"><label>🏪 المورد</label>
+        <select id="f_supplier" onchange="onSupplierChange()">
+          <option value="">— بدون مورد —</option>
+          ${S.suppliers.map(s=>`<option value="${s.id}" ${mv.supplier_id===s.id?'selected':''}>${esc(s.name)}</option>`).join('')}
+        </select></div>
+      <div class="form-row"><label>🚛 عربة المورد</label>
+        <select id="f_supveh"><option value="">— بدون عربة —</option></select></div>` : ''}
       <div class="form-row"><label>الكمية *</label><input id="f_qty" type="number" min="0" step="any" value="${mv.qty}"></div>
-      ${mv.type==='in'?`<div class="form-row"><label>سعر الوحدة (${CUR})</label><input id="f_price" type="number" min="0" step="any" value="${mv.price||0}"></div>`:''}
+      ${mv.type==='in'?`<div class="form-row"><label>سعر الوحدة (${CUR})</label><input id="f_price" type="number" min="0" step="any" value="${mv.price||0}"></div>
+      <div class="form-row"><label>📄 رقم وصل المورد</label><input id="f_doc" dir="ltr" value="${esc(mv.doc_no||'')}"></div>
+      <div class="form-row"><label>حالة الدفع</label>
+        <select id="f_paid"><option value="1">مسدد</option><option value="0" ${mv.paid===false?'selected':''}>آجل</option></select></div>`:''}
       <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${esc(mv.date)}"></div>
       <div class="form-row"><label>ملاحظة</label><input id="f_note" value="${esc(mv.note||'')}"></div>
     </div>
@@ -259,13 +303,23 @@ window.movementForm = function(id) {
       <button class="btn primary" onclick="saveMovement(${id})">💾 حفظ التعديل</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>`);
+  if (mv.type === 'in') {
+    onSupplierChange();
+    if (mv.supplier_vehicle_id) $('#f_supveh').value = String(mv.supplier_vehicle_id);
+  }
 };
 window.saveMovement = async function(id) {
   const mv = S.movements.find(x=>x.id===id);
   const qty = Number($('#f_qty').value);
   if (!qty || qty <= 0) return toast('أدخل كمية صحيحة', 'err');
   const patch = { qty, date: $('#f_date').value || mv.date, note: $('#f_note').value.trim() };
-  if (mv.type === 'in') patch.price = Number($('#f_price').value)||0;
+  if (mv.type === 'in') {
+    patch.price = Number($('#f_price').value)||0;
+    patch.supplier_id = Number($('#f_supplier').value) || null;
+    patch.supplier_vehicle_id = Number($('#f_supveh').value) || null;
+    patch.doc_no = $('#f_doc').value.trim();
+    patch.paid = $('#f_paid').value === '1';
+  }
   try {
     await DB.update('movements', id, patch);
     closeModal(); toast('تم التعديل ✔', 'ok'); await refresh();
@@ -285,6 +339,186 @@ window.delMaterial = async function(id) {
   if (!confirm(`حذف المادة "${m.name}" وكل حركاتها؟`)) return;
   try { await DB.remove('materials', id); toast('تم الحذف', 'ok'); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
+   🏪 الموردون وعرباتهم
+   ===================================================== */
+const supById = id => S.suppliers.find(s => s.id === id);
+const supVehicles = sid => S.supplier_vehicles.filter(v => v.supplier_id === sid);
+const supMovements = sid => S.movements.filter(m => m.type === 'in' && m.supplier_id === sid);
+const movValue = mv => Number(mv.qty) * Number(mv.price || 0);
+
+function renderSuppliers() {
+  const ce = canEdit('suppliers');
+  const q = ($('#supSearch').value || '').trim();
+  const allIn = S.movements.filter(m => m.type === 'in');
+  const totalValue = allIn.reduce((s,m) => s + movValue(m), 0);
+  const unpaidValue = allIn.filter(m => m.paid === false).reduce((s,m) => s + movValue(m), 0);
+
+  $('#supCards').innerHTML = `
+    <div class="card blue"><div class="c-label">🏪 عدد الموردين</div><div class="c-value">${S.suppliers.length}</div>
+      <div class="c-sub">${S.supplier_vehicles.length} عربة مسجلة</div></div>
+    <div class="card"><div class="c-label">📥 عمليات التوريد</div><div class="c-value">${allIn.length}</div></div>
+    <div class="card amber"><div class="c-label">💵 قيمة المشتريات</div><div class="c-value">${money(totalValue)}</div></div>
+    <div class="card ${unpaidValue>0?'red':'green'}"><div class="c-label">⏳ توريدات غير مسددة</div><div class="c-value">${money(unpaidValue)}</div></div>`;
+
+  const list = S.suppliers.filter(s => !q || s.name.includes(q) || (s.phone||'').includes(q));
+  $('#suppliersList').innerHTML = list.length ? list.map(s => {
+    const vehs = supVehicles(s.id);
+    const movs = supMovements(s.id);
+    const total = movs.reduce((x,m) => x + movValue(m), 0);
+    const unpaid = movs.filter(m => m.paid === false).reduce((x,m) => x + movValue(m), 0);
+    const vehRows = vehs.map(v => `<tr>
+      <td><b>🚛 ${esc(v.name)}</b></td>
+      <td>${esc(v.driver||'—')}</td>
+      <td dir="ltr" style="text-align:right">${esc(v.phone||'—')}</td>
+      <td class="num">${v.capacity?fmt(v.capacity):'—'}</td>
+      <td class="num">${S.movements.filter(m=>m.supplier_vehicle_id===v.id).length}</td>
+      <td>${ce ? `<div class="actions">
+        <button class="btn sm" onclick="supVehicleForm(${s.id}, ${v.id})">✏️</button>
+        <button class="btn sm danger" onclick="delSupVehicle(${v.id})">🗑️</button></div>` : ''}</td>
+    </tr>`).join('');
+    const lastMovs = [...movs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,5).map(m => {
+      const mat = matById(m.material_id);
+      return `<tr>
+        <td>${esc(m.date)}</td>
+        <td>${esc(mat?mat.name:'—')}</td>
+        <td class="num">${fmt(m.qty)} ${esc(mat?mat.unit:'')}</td>
+        <td class="num">${money(movValue(m))}</td>
+        <td><span class="badge ${m.paid===false?'low':'ok'}">${m.paid===false?'آجل':'مسدد'}</span></td>
+      </tr>`;
+    }).join('');
+    return `<div class="panel recipe-card">
+      <div class="recipe-head">
+        <div>
+          <h3 style="margin:0">🏪 ${esc(s.name)}</h3>
+          <div class="hint">
+            ${s.phone?`📞 <span dir="ltr">${esc(s.phone)}</span> &nbsp;`:''}
+            ${s.address?`📍 ${esc(s.address)} &nbsp;`:''}
+            ${s.material_types?`🧱 ${esc(s.material_types)}`:''}
+          </div>
+          <div class="hint">${vehs.length} عربة — ${movs.length} توريد — الإجمالي: <b>${money(total)}</b>${unpaid>0?` — <span style="color:var(--red)">آجل: ${money(unpaid)}</span>`:''}</div>
+        </div>
+        <div class="actions">
+          ${ce ? `<button class="btn sm primary" onclick="supVehicleForm(${s.id}, 0)">➕ عربة</button>
+          <button class="btn sm" onclick="supplierForm(${s.id})">✏️</button>
+          <button class="btn sm danger" onclick="delSupplier(${s.id})">🗑️</button>` : ''}
+        </div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>العربة</th><th>السائق</th><th>الهاتف</th><th>الحمولة</th><th>التوريدات</th><th></th></tr>
+        ${vehRows || '<tr><td colspan="6" class="empty-row">لا توجد عربات مسجلة لهذا المورد</td></tr>'}
+      </table></div>
+      ${movs.length ? `<div class="hint" style="margin-top:10px">آخر التوريدات:</div>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>التاريخ</th><th>المادة</th><th>الكمية</th><th>القيمة</th><th>الدفع</th></tr>${lastMovs}
+      </table></div>` : ''}
+      ${s.notes ? `<div class="hint" style="margin-top:8px">📝 ${esc(s.notes)}</div>` : ''}
+    </div>`;
+  }).join('') : `<div class="panel"><p class="empty-row">${q?'لا نتائج مطابقة':'لا يوجد موردون بعد — اضغط "➕ مورد جديد"'}</p></div>`;
+
+  // آخر عمليات التوريد (كل الموردين)
+  const rows = [...allIn].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,25).map(m => {
+    const mat = matById(m.material_id);
+    const sup = m.supplier_id ? supById(m.supplier_id) : null;
+    const veh = m.supplier_vehicle_id ? S.supplier_vehicles.find(v=>v.id===m.supplier_vehicle_id) : null;
+    return `<tr>
+      <td>${esc(m.date)}</td>
+      <td>${sup?esc(sup.name):'<span class="hint">بدون مورد</span>'}</td>
+      <td>${veh?'🚛 '+esc(veh.name):'—'}</td>
+      <td>${esc(mat?mat.name:'—')}</td>
+      <td class="num">${fmt(m.qty)} ${esc(mat?mat.unit:'')}</td>
+      <td class="num">${money(m.price||0)}</td>
+      <td class="num"><b>${money(movValue(m))}</b></td>
+      <td>${esc(m.doc_no||'—')}</td>
+      <td><span class="badge ${m.paid===false?'low':'ok'}">${m.paid===false?'آجل':'مسدد'}</span></td>
+    </tr>`;
+  }).join('');
+  $('#supMovTable').innerHTML = `
+    <tr><th>التاريخ</th><th>المورد</th><th>العربة</th><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th><th>القيمة</th><th>رقم الوصل</th><th>الدفع</th></tr>
+    ${rows || '<tr><td colspan="9" class="empty-row">لا توجد عمليات توريد بعد</td></tr>'}`;
+}
+$('#supSearch').oninput = renderSuppliers;
+
+window.supplierForm = function(id) {
+  const s = id ? supById(id) : null;
+  modal(s ? 'تعديل مورد' : 'مورد جديد', `
+    <div class="form-grid">
+      <div class="form-row"><label>اسم المورد *</label><input id="f_name" value="${esc(s?.name||'')}" placeholder="معمل سمنت الكوفة"></div>
+      <div class="form-row"><label>رقم الهاتف</label><input id="f_phone" dir="ltr" value="${esc(s?.phone||'')}"></div>
+      <div class="form-row"><label>العنوان</label><input id="f_addr" value="${esc(s?.address||'')}"></div>
+      <div class="form-row"><label>المواد التي يوردها</label><input id="f_types" value="${esc(s?.material_types||'')}" placeholder="سمنت، رمل، حصى"></div>
+    </div>
+    <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(s?.notes||'')}"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveSupplier(${id||0})">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveSupplier = async function(id) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('اسم المورد مطلوب', 'err');
+  if (S.suppliers.find(s => s.name === name && s.id !== id)) return toast('⚠️ يوجد مورد بنفس الاسم', 'err');
+  const data = { name, phone: $('#f_phone').value.trim(), address: $('#f_addr').value.trim(),
+    material_types: $('#f_types').value.trim(), notes: $('#f_notes').value.trim() };
+  try {
+    if (id) await DB.update('suppliers', id, data); else await DB.insert('suppliers', data);
+    closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delSupplier = async function(id) {
+  const s = supById(id);
+  if (S.movements.some(m => m.supplier_id === id)) return toast('لا يمكن حذف مورد مرتبط بعمليات توريد', 'err');
+  if (!confirm(`حذف المورد "${s.name}" وكل عرباته؟`)) return;
+  try { await DB.remove('suppliers', id); toast('تم الحذف', 'ok'); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+window.supVehicleForm = function(supId, vehId) {
+  const v = vehId ? S.supplier_vehicles.find(x=>x.id===vehId) : null;
+  const s = supById(v ? v.supplier_id : supId);
+  modal(v ? 'تعديل عربة مورد' : `➕ عربة جديدة: ${esc(s.name)}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>اسم / رقم العربة *</label><input id="f_name" value="${esc(v?.name||'')}" placeholder="حوضية 12 طن / رقم اللوحة"></div>
+      <div class="form-row"><label>اسم السائق</label><input id="f_driver" value="${esc(v?.driver||'')}"></div>
+      <div class="form-row"><label>هاتف السائق</label><input id="f_phone" dir="ltr" value="${esc(v?.phone||'')}"></div>
+      <div class="form-row"><label>الحمولة</label><input id="f_cap" type="number" min="0" step="any" value="${v?.capacity??''}" placeholder="بالطن أو م³"></div>
+    </div>
+    <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(v?.notes||'')}"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveSupVehicle(${v?v.supplier_id:supId}, ${vehId||0})">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveSupVehicle = async function(supId, vehId) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('اسم العربة مطلوب', 'err');
+  const data = { supplier_id: supId, name, driver: $('#f_driver').value.trim(),
+    phone: $('#f_phone').value.trim(), capacity: Number($('#f_cap').value) || null,
+    notes: $('#f_notes').value.trim() };
+  try {
+    if (vehId) await DB.update('supplier_vehicles', vehId, data);
+    else await DB.insert('supplier_vehicles', data);
+    closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delSupVehicle = async function(id) {
+  if (S.movements.some(m => m.supplier_vehicle_id === id)) return toast('لا يمكن حذف عربة مرتبطة بتوريدات', 'err');
+  if (!confirm('حذف هذه العربة؟')) return;
+  try { await DB.remove('supplier_vehicles', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+// تحديث قائمة عربات المورد داخل نموذج التوريد
+window.onSupplierChange = function() {
+  const sid = Number($('#f_supplier').value);
+  const sel = $('#f_supveh');
+  const vehs = sid ? supVehicles(sid) : [];
+  sel.innerHTML = '<option value="">— بدون عربة —</option>' +
+    vehs.map(v=>`<option value="${v.id}">${esc(v.name)}${v.driver?' — '+esc(v.driver):''}</option>`).join('');
+  sel.disabled = !sid;
+  if (sid && !vehs.length) sel.innerHTML = '<option value="">— لا توجد عربات مسجلة لهذا المورد —</option>';
 };
 
 /* =====================================================
@@ -1634,7 +1868,9 @@ const AUDIT_TABLES = {
   materials:'المواد الخام', movements:'حركات المخزون', customers:'الزبائن',
   mixtures:'الخلطات', mixture_items:'مكونات الخلطات', invoices:'الفواتير',
   expenses:'المصاريف', vehicles:'العربات', partners:'الشركاء',
-  partner_withdrawals:'سحوبات الشركاء', employees:'الموظفون', salaries:'الرواتب', profiles:'حسابات الدخول'
+  partner_withdrawals:'سحوبات الشركاء', employees:'الموظفون', salaries:'الرواتب', profiles:'حسابات الدخول',
+  recipes:'الخلطات الجاهزة', recipe_items:'مكونات الخلطات الجاهزة',
+  suppliers:'الموردون', supplier_vehicles:'عربات الموردين'
 };
 const AUDIT_ACTIONS = {
   insert:['➕ إضافة','ok'], update:['✏️ تعديل','draft'], delete:['🗑️ حذف','low']
@@ -1647,7 +1883,9 @@ const AUDIT_FIELDS = {
   base_salary:'الراتب الأساسي', delivery_fee:'أجرة النقل', delivery_location:'موقع الإرسال',
   invoice_no:'رقم الفاتورة', category:'الفئة', role:'الدور', active:'مفعّل', driver:'السائق',
   title:'الوظيفة', month:'الشهر', unit:'الوحدة', customer_id:'الزبون', vehicle_id:'العربة',
-  material_id:'المادة', mixture_id:'الخلطة', employee_id:'الموظف', partner_id:'الشريك'
+  material_id:'المادة', mixture_id:'الخلطة', employee_id:'الموظف', partner_id:'الشريك',
+  supplier_id:'المورد', supplier_vehicle_id:'عربة المورد', doc_no:'رقم الوصل',
+  qty_per_unit:'الكمية لكل وحدة', recipe_id:'الخلطة الجاهزة', capacity:'الحمولة', material_types:'المواد المورّدة'
 };
 
 function auditValue(v) {
@@ -1861,6 +2099,26 @@ function buildReport() {
           ${mixes.map(m=>`<tr><td>${esc(m.name)}</td><td>${esc(m.date)}</td><td class="num">${fmt(m.output_qty)} ${esc(m.output_unit)}</td><td class="num">${money(m.cost)}</td></tr>`).join('')
             || '<tr><td colspan="4" class="empty-row">لا توجد خلطات</td></tr>'}
         </table></div></div>
+      <div class="panel"><h3>🏪 المشتريات من الموردين</h3>
+        <div class="tbl-wrap"><table class="tbl">
+          <tr><th>المورد</th><th>عدد التوريدات</th><th>القيمة</th><th>غير المسدد</th></tr>
+          ${(() => {
+            const ins = S.movements.filter(m => m.type==='in' && ((!from && !to) || inRange(m.date, from, to)));
+            const by = {};
+            ins.forEach(m => {
+              const k = m.supplier_id || 0;
+              by[k] = by[k] || { n:0, total:0, unpaid:0 };
+              by[k].n++; by[k].total += movValue(m);
+              if (m.paid === false) by[k].unpaid += movValue(m);
+            });
+            return Object.entries(by).map(([k,v]) => {
+              const s = Number(k) ? supById(Number(k)) : null;
+              return `<tr><td>${s?esc(s.name):'<span class="hint">بدون مورد</span>'}</td>
+                <td class="num">${v.n}</td><td class="num">${money(v.total)}</td>
+                <td class="num" style="color:${v.unpaid>0?'var(--red)':'inherit'}">${money(v.unpaid)}</td></tr>`;
+            }).join('') || '<tr><td colspan="4" class="empty-row">لا توريدات ضمن الفترة</td></tr>';
+          })()}
+        </table></div></div>
       <div class="panel"><h3>📦 استهلاك المواد ضمن الفترة</h3>
         <div class="tbl-wrap"><table class="tbl">
           <tr><th>المادة</th><th>الكمية المستهلكة</th></tr>
@@ -1945,6 +2203,7 @@ $('#btnSaveCurrency').onclick = () => {
 
 // ---------- أزرار الإضافة ----------
 $('#btnAddMaterial').onclick = () => materialForm(0);
+$('#btnAddSupplier').onclick = () => supplierForm(0);
 $('#btnAddRecipe').onclick = () => recipeForm(0);
 $('#btnAddMixture').onclick = () => mixtureForm(0);
 $('#btnAddCustomer').onclick = () => customerForm(0);
@@ -1962,7 +2221,7 @@ function applyPermissions() {
   // إخفاء صفحات القائمة غير المسموحة
   $$('.nav-btn').forEach(b => b.style.display = canView(b.dataset.page) ? '' : 'none');
   // إخفاء أزرار الإضافة حسب الدور
-  const addBtns = { btnAddMaterial:'materials', btnAddRecipe:'recipes', btnAddMixture:'mixtures', btnAddCustomer:'customers',
+  const addBtns = { btnAddMaterial:'materials', btnAddSupplier:'suppliers', btnAddRecipe:'recipes', btnAddMixture:'mixtures', btnAddCustomer:'customers',
     btnAddSale:'sales', btnAddExpense:'expenses', btnAddVehicle:'vehicles',
     btnAddEmployee:'employees', btnAddPartner:'partners', btnAddUser:'users' };
   Object.entries(addBtns).forEach(([btn, section]) => {
