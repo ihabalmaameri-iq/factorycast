@@ -6,7 +6,7 @@ const DB = (() => {
   const TABLES = ['materials','movements','customers','mixtures','mixture_items','invoices','expenses',
                   'vehicles','partners','partner_withdrawals','employees','salaries','profiles',
                   'recipes','recipe_items','suppliers','supplier_vehicles',
-                  'revenues','cash_counts','app_settings'];
+                  'revenues','cash_counts','app_settings','payments'];
   const LS_KEY = 'casting_factory_data';
   let sb = null;            // عميل Supabase
   let backend = 'local';
@@ -156,6 +156,9 @@ const DB = (() => {
     if (table === 'mixtures') {
       store.mixture_items = store.mixture_items.filter(m => m.mixture_id !== id);
     }
+    if (table === 'invoices') {
+      store.payments = store.payments.filter(p => p.invoice_id !== id);
+    }
     if (table === 'recipes') {
       store.recipe_items = store.recipe_items.filter(i => i.recipe_id !== id);
     }
@@ -181,7 +184,7 @@ const DB = (() => {
 
   /* ---------- تصفير كل البيانات (لا يشمل حسابات الدخول) ---------- */
   async function clearAllData() {
-    const order = ['movements','mixture_items','recipe_items','invoices','salaries','partner_withdrawals',
+    const order = ['movements','mixture_items','recipe_items','payments','invoices','salaries','partner_withdrawals',
                    'mixtures','recipes','supplier_vehicles','materials','customers','expenses',
                    'vehicles','suppliers','employees','partners'];
     if (backend === 'supabase') {

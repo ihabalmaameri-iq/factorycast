@@ -6,7 +6,7 @@
 const S = { materials:[], movements:[], customers:[], mixtures:[], mixture_items:[], invoices:[], expenses:[],
             vehicles:[], partners:[], partner_withdrawals:[], employees:[], salaries:[], profiles:[],
             recipes:[], recipe_items:[], suppliers:[], supplier_vehicles:[],
-            revenues:[], cash_counts:[], app_settings:[] };
+            revenues:[], cash_counts:[], app_settings:[], payments:[] };
 let CUR = localStorage.getItem('currency') || 'د.ع';
 
 // ---------- الصلاحيات ----------
@@ -968,7 +968,7 @@ function renderCustomers() {
       const invs = S.invoices.filter(v => v.customer_id === c.id);
       const total = invs.reduce((s,v)=>s+Number(v.total), 0);
       const prof = invs.reduce((s,v)=>s+invProfit(v), 0);
-      const due = invs.filter(v=>!v.paid).reduce((s,v)=>s+Number(v.total), 0);
+      const due = invs.reduce((s,v)=>s+remainOf(v), 0);
       return `<tr>
         <td class="num">#${c.id}</td>
         <td><b>${esc(c.name)}</b></td>
@@ -1051,7 +1051,8 @@ function customerData() {
   const from = $('#cdFrom').value, to = $('#cdTo').value, paidF = $('#cdPaid').value;
   let invs = S.invoices.filter(v => v.customer_id === id);
   if (from || to) invs = invs.filter(v => inRange(v.date, from, to));
-  if (paidF !== '') invs = invs.filter(v => (v.paid ? '1' : '0') === paidF);
+  if (paidF === '1') invs = invs.filter(v => remainOf(v) <= 0.009);
+  if (paidF === '0') invs = invs.filter(v => remainOf(v) > 0.009);
   invs.sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
   return { c: custById(id), invs, from, to };
 }
@@ -1066,8 +1067,8 @@ function drawCustomer() {
   const dfees   = invs.reduce((s,v) => s + Number(v.delivery_fee||0), 0);
   const profit  = sales - cogs;
   const pct     = sales > 0 ? profit / sales * 100 : 0;
-  const paidAmt = invs.filter(v => v.paid).reduce((s,v) => s + Number(v.total), 0);
-  const dueAmt  = sales - paidAmt;
+  const paidAmt = invs.reduce((s,v) => s + paidOf(v), 0);
+  const dueAmt  = invs.reduce((s,v) => s + remainOf(v), 0);
   const totalQty= invs.reduce((s,v) => s + Number(v.qty||0), 0);
   const period  = (from || to) ? `${from||'البداية'} ← ${to||'اليوم'}` : 'كل الفترات';
 
@@ -1118,11 +1119,14 @@ function drawCustomer() {
       <td class="num" style="color:${p>=0?'var(--green)':'var(--red)'}"><b>${money(p)}</b>
         <div class="hint">${fmt(pp.toFixed(1))}%</div></td>
       <td>${v.delivery_location?`📍 ${esc(v.delivery_location)}`:'—'}${veh?`<div class="hint">🚚 ${esc(veh.name)}</div>`:''}</td>
-      <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مسددة':'آجلة'}</span></td>
+      <td>${(() => { const st = payStatus(v);
+        return `<span class="badge ${st.cls}">${st.label}</span>
+          ${st.key!=='paid'?`<div class="hint">متبقي <b style="color:var(--red)">${fmt(remainOf(v))}</b></div>`:''}`; })()}</td>
       <td><div class="actions">
-        <button class="btn sm primary" onclick="receiptForm(${v.id})">📄</button>
+        <button class="btn sm" onclick="receiptForm(${v.id})">📄</button>
         <button class="btn sm" onclick="printInvoice(${v.id})">🖨️</button>
-        ${canEdit('sales')?`<button class="btn sm" onclick="saleForm(${v.id})">✏️</button>`:''}
+        ${canEdit('sales')?`<button class="btn sm ${remainOf(v)>0?'primary':''}" onclick="paymentsForm(${v.id})">💵</button>
+        <button class="btn sm" onclick="saleForm(${v.id})">✏️</button>`:''}
       </div></td>
     </tr>`;
   }).join('');
@@ -1216,8 +1220,8 @@ window.printStatement = function() {
   const { c, invs, from, to } = customerData();
   const sales = invs.reduce((s,v)=>s+Number(v.total),0);
   const cogs  = invs.reduce((s,v)=>s+Number(v.cost),0);
-  const paid  = invs.filter(v=>v.paid).reduce((s,v)=>s+Number(v.total),0);
-  const due   = sales - paid;
+  const paid  = invs.reduce((s,v)=>s+paidOf(v),0);
+  const due   = invs.reduce((s,v)=>s+remainOf(v),0);
   const profit = sales - cogs;
   $('#printArea').innerHTML = `
     <div class="inv-print">
@@ -1235,17 +1239,26 @@ window.printStatement = function() {
         </div>
       </div>
       <table>
-        <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>البيان</th><th>الكمية</th><th>المبلغ</th><th>الحالة</th></tr>
+        <tr><th>رقم الفاتورة</th><th>التاريخ</th><th>البيان</th><th>المبلغ</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th></tr>
         ${invs.slice().reverse().map(v => {
           const mix = v.mixture_id ? mixById(v.mixture_id) : null;
           return `<tr><td>${esc(v.invoice_no)}</td><td>${esc(v.date)}</td>
             <td>${mix?esc(mix.name):'بيع مباشر'}${v.delivery_location?` — ${esc(v.delivery_location)}`:''}</td>
-            <td>${fmt(v.qty)}</td><td>${money(v.total)}</td>
-            <td>${v.paid?'مسددة':'آجلة'}</td></tr>`;
-        }).join('') || '<tr><td colspan="6">لا توجد فواتير ضمن الفترة</td></tr>'}
+            <td>${money(v.total)}</td><td>${money(paidOf(v))}</td><td>${money(remainOf(v))}</td>
+            <td>${payStatus(v).label}</td></tr>`;
+        }).join('') || '<tr><td colspan="7">لا توجد فواتير ضمن الفترة</td></tr>'}
         <tr style="font-weight:900;background:#eee">
-          <td colspan="4">الإجمالي (${invs.length} فاتورة)</td><td>${money(sales)}</td><td></td></tr>
+          <td colspan="3">الإجمالي (${invs.length} فاتورة)</td><td>${money(sales)}</td>
+          <td>${money(paid)}</td><td>${money(due)}</td><td></td></tr>
       </table>
+      ${(() => {
+        const ps = invs.flatMap(v => invPayments(v.id).map(p => ({...p, no: v.invoice_no})))
+          .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        return ps.length ? `<h3 style="margin-top:14px;font-size:15px">سجل الدفعات المستلمة</h3>
+        <table><tr><th>التاريخ</th><th>الفاتورة</th><th>المبلغ</th><th>الطريقة</th></tr>
+        ${ps.map(p=>`<tr><td>${esc(p.date)}</td><td>${esc(p.no)}</td><td>${money(p.amount)}</td><td>${esc(p.method||'نقد')}</td></tr>`).join('')}
+        </table>` : '';
+      })()}
       <div class="inv-total">
         المسدد: ${money(paid)} &nbsp;|&nbsp; <span style="color:#b00">المتبقي بالذمة: ${money(due)}</span>
       </div>
@@ -1260,6 +1273,124 @@ window.delCustomer = async function(id) {
   if (!confirm(`حذف الزبون "${c.name}"؟`)) return;
   try { await DB.remove('customers', id); backToCustomers(); toast('تم الحذف', 'ok'); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
+   💵 دفعات تسديد الفواتير
+   ===================================================== */
+const PAY_METHODS = ['نقد','تحويل بنكي','صك','أخرى'];
+const invPayments = invId => S.payments.filter(p => p.invoice_id === invId)
+  .sort((a,b) => (a.date||'').localeCompare(b.date||'') || a.id - b.id);
+
+// المدفوع من فاتورة (مع توافقية الفواتير القديمة التي لا دفعات لها)
+function paidOf(v) {
+  const ps = invPayments(v.id);
+  if (ps.length) return ps.reduce((s,p) => s + Number(p.amount), 0);
+  return v.paid ? Number(v.total) : 0;
+}
+const remainOf = v => Math.max(0, Number(v.total) - paidOf(v));
+function payStatus(v) {
+  const rem = remainOf(v);
+  if (rem <= 0.009) return { key:'paid',    label:'مسددة',        cls:'ok' };
+  if (paidOf(v) > 0) return { key:'partial', label:'مسددة جزئياً', cls:'draft' };
+  return { key:'unpaid', label:'آجلة', cls:'low' };
+}
+// مجموع الدفعات المقبوضة فعلاً ضمن فترة (للقاصة والإيرادات)
+function collectedInPeriod(from, to) {
+  const withPayments = new Set(S.payments.map(p => p.invoice_id));
+  const fromPayments = S.payments.filter(p => inPeriod(p.date, from, to))
+    .reduce((s,p) => s + Number(p.amount), 0);
+  // فواتير قديمة مسددة بلا سجل دفعات
+  const legacy = S.invoices.filter(v => v.paid && !withPayments.has(v.id) && inPeriod(v.date, from, to))
+    .reduce((s,v) => s + Number(v.total), 0);
+  return fromPayments + legacy;
+}
+
+// مزامنة حالة الفاتورة بعد أي تغيير بالدفعات
+async function syncInvoicePaid(invId) {
+  const v = S.invoices.find(x => x.id === invId);
+  if (!v) return;
+  const total = invPayments(invId).reduce((s,p) => s + Number(p.amount), 0);
+  const shouldBePaid = total >= Number(v.total) - 0.009;
+  if (!!v.paid !== shouldBePaid) await DB.update('invoices', invId, { paid: shouldBePaid });
+}
+
+window.paymentsForm = function(invId) {
+  const v = S.invoices.find(x => x.id === invId);
+  const c = custById(v.customer_id);
+  const paid = paidOf(v), rem = remainOf(v);
+  const st = payStatus(v);
+  const ps = invPayments(invId);
+  modal(`💵 تسديد الفاتورة ${esc(v.invoice_no)}`, `
+    <div class="calc-box" style="font-size:15px;line-height:2">
+      الزبون: <b>${esc(c?c.name:'—')}</b><br>
+      مبلغ الفاتورة: <b>${money(v.total)}</b> &nbsp;|&nbsp;
+      المسدد: <b style="color:var(--green)">${money(paid)}</b> &nbsp;|&nbsp;
+      المتبقي: <b style="color:${rem>0?'var(--red)':'var(--green)'}">${money(rem)}</b>
+      <span class="badge ${st.cls}" style="margin-right:8px">${st.label}</span>
+    </div>
+    ${rem > 0 ? `
+    <div class="form-grid" style="margin-top:14px">
+      <div class="form-row"><label>مبلغ الدفعة (${CUR}) *</label>
+        <input id="p_amount" type="number" min="0" step="any" value="${rem}"></div>
+      <div class="form-row"><label>التاريخ</label><input id="p_date" type="date" value="${today()}"></div>
+      <div class="form-row"><label>طريقة الدفع</label>
+        <select id="p_method">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></div>
+      <div class="form-row"><label>ملاحظة</label><input id="p_note" placeholder="رقم الوصل / المستلم"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="savePayment(${invId})">💾 تسجيل الدفعة</button>
+      <button class="btn" onclick="document.getElementById('p_amount').value='${rem}'; savePayment(${invId})">✔ تسديد كامل المتبقي</button>
+      <button class="btn ghost" onclick="closeModal()">إغلاق</button>
+    </div>` : `
+    <div class="hint" style="margin-top:12px;color:var(--green);font-weight:900">✔ هذه الفاتورة مسددة بالكامل</div>
+    <div class="form-actions"><button class="btn ghost" onclick="closeModal()">إغلاق</button></div>`}
+    <h3 style="margin-top:18px">📒 سجل الدفعات (${ps.length})</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>ملاحظة</th><th></th></tr>
+      ${ps.map(p => `<tr>
+        <td>${esc(p.date)}</td>
+        <td class="num"><b>${money(p.amount)}</b></td>
+        <td>${esc(p.method||'نقد')}</td>
+        <td>${esc(p.note||'')}</td>
+        <td>${canEdit('sales')?`<button class="btn sm danger" onclick="delPayment(${p.id}, ${invId})">🗑️</button>`:''}</td>
+      </tr>`).join('') || '<tr><td colspan="5" class="empty-row">لا دفعات بعد</td></tr>'}
+    </table></div>`);
+};
+
+window.savePayment = async function(invId) {
+  const v = S.invoices.find(x => x.id === invId);
+  const amount = Number($('#p_amount').value);
+  if (!amount || amount <= 0) return toast('أدخل مبلغ الدفعة', 'err');
+  const rem = remainOf(v);
+  if (amount > rem + 0.009) return toast(`⚠️ المبلغ أكبر من المتبقي (${money(rem)})`, 'err');
+  try {
+    // تثبيت الفواتير القديمة المسددة قبل إضافة دفعات جديدة
+    if (v.paid && !invPayments(invId).length) {
+      await DB.insert('payments', { invoice_id: invId, date: v.date, amount: Number(v.total),
+        method: 'نقد', note: 'تسديد سابق' });
+    }
+    await DB.insert('payments', { invoice_id: invId, date: $('#p_date').value || today(),
+      amount, method: $('#p_method').value, note: $('#p_note').value.trim() });
+    await loadAll();
+    await syncInvoicePaid(invId);
+    await refresh();
+    const nv = S.invoices.find(x => x.id === invId);
+    toast(remainOf(nv) <= 0.009 ? '✔ تم التسديد بالكامل' : `تم تسجيل الدفعة — المتبقي: ${money(remainOf(nv))}`, 'ok');
+    paymentsForm(invId);
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+window.delPayment = async function(payId, invId) {
+  if (!confirm('حذف هذه الدفعة؟')) return;
+  try {
+    await DB.remove('payments', payId);
+    await loadAll();
+    await syncInvoicePaid(invId);
+    await refresh();
+    toast('تم حذف الدفعة', 'ok');
+    paymentsForm(invId);
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 
 /* =====================================================
@@ -1294,12 +1425,16 @@ function renderSales() {
         <td class="num">${money(v.cost)}</td>
         <td class="num">${fmt(v.margin_pct)}%</td>
         <td class="num"><b>${money(v.total)}</b></td>
-        <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مدفوعة':'آجلة'}</span></td>
+        <td>${(() => {
+          const st = payStatus(v), pd = paidOf(v), rem = remainOf(v);
+          return `<span class="badge ${st.cls}">${st.label}</span>
+            ${st.key!=='paid' ? `<div class="hint">مسدد ${fmt(pd)} — متبقي <b style="color:var(--red)">${fmt(rem)}</b></div>` : ''}`;
+        })()}</td>
         <td><div class="actions">
           <button class="btn sm primary" onclick="receiptForm(${v.id})">📄 وصل</button>
           <button class="btn sm" onclick="printInvoice(${v.id})">🖨️ فاتورة</button>
-          ${canEdit('sales') ? `<button class="btn sm" onclick="saleForm(${v.id})">✏️</button>
-          <button class="btn sm" onclick="togglePaid(${v.id})">${v.paid?'↩️':'💵 تسديد'}</button>
+          ${canEdit('sales') ? `<button class="btn sm ${remainOf(v)>0?'primary':''}" onclick="paymentsForm(${v.id})">💵 دفعات</button>
+          <button class="btn sm" onclick="saleForm(${v.id})">✏️</button>
           <button class="btn sm danger" onclick="delInvoice(${v.id})">🗑️</button>` : ''}
         </div></td>
       </tr>`;
@@ -1339,8 +1474,13 @@ window.saleForm = function(id) {
         ${S.vehicles.map(x=>`<option value="${x.id}" ${v?.vehicle_id===x.id?'selected':''}>${esc(x.name)}${x.driver?' — '+esc(x.driver):''}</option>`).join('')}</select></div>
       <div class="form-row"><label>📍 موقع الإرسال</label><input id="f_loc" value="${esc(v?.delivery_location||'')}" placeholder="العنوان / الموقع"></div>
       <div class="form-row"><label>أجرة النقل (${CUR})</label><input id="f_dfee" type="number" min="0" step="any" value="${v?.delivery_fee??0}" oninput="saleRecalc(true)"></div>
-      <div class="form-row"><label>حالة الدفع</label>
-        <select id="f_paid"><option value="1">مدفوعة</option><option value="0" ${v && !v.paid?'selected':''}>آجلة</option></select></div>
+      ${v ? `<div class="form-row"><label>حالة التسديد</label>
+        <div style="padding:9px 0"><span class="badge ${payStatus(v).cls}">${payStatus(v).label}</span>
+        ${remainOf(v)>0?` — متبقي <b>${money(remainOf(v))}</b>`:''}
+        <button type="button" class="btn sm" style="margin-right:8px" onclick="closeModal(); paymentsForm(${v.id})">💵 إدارة الدفعات</button></div></div>`
+      : `<div class="form-row"><label>المبلغ المدفوع الآن (${CUR})</label>
+        <input id="f_paidnow" type="number" min="0" step="any" value="0">
+        <div class="hint">اتركه صفراً للبيع الآجل — ويمكن التسديد لاحقاً على دفعات.</div></div>`}
     </div>
     <div class="form-row"><label>ملاحظات</label><input id="f_notes" value="${esc(v?.notes||'')}"></div>
     <div class="form-actions">
@@ -1384,21 +1524,28 @@ window.saveSale = async function(id) {
     vehicle_id: Number($('#f_vehicle').value) || null,
     delivery_location: $('#f_loc').value.trim(),
     delivery_fee: Number($('#f_dfee').value)||0,
-    paid: $('#f_paid').value === '1',
     notes: $('#f_notes').value.trim()
   };
   try {
-    if (id) await DB.update('invoices', id, data);
-    else await DB.insert('invoices', data);
-    closeModal(); toast(id ? 'تم تعديل الفاتورة ✔' : 'تم إنشاء الفاتورة ✔', 'ok'); await refresh();
+    if (id) {
+      await DB.update('invoices', id, data);
+      closeModal(); toast('تم تعديل الفاتورة ✔', 'ok'); await refresh();
+      await syncInvoicePaid(id);
+    } else {
+      const paidNow = Math.min(Number($('#f_paidnow').value)||0, total);
+      const row = await DB.insert('invoices', { ...data, paid: paidNow >= total - 0.009 });
+      if (paidNow > 0) {
+        await DB.insert('payments', { invoice_id: row.id, date: data.date, amount: paidNow,
+          method: 'نقد', note: 'دفعة عند البيع' });
+      }
+      closeModal();
+      toast(paidNow >= total - 0.009 ? 'تم إنشاء الفاتورة مسددة ✔'
+            : `تم إنشاء الفاتورة — المتبقي: ${money(total - paidNow)}`, 'ok');
+      await refresh();
+    }
   } catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 
-window.togglePaid = async function(id) {
-  const v = S.invoices.find(x=>x.id===id);
-  try { await DB.update('invoices', id, { paid: !v.paid }); await refresh(); }
-  catch(e) { toast('خطأ: '+e.message, 'err'); }
-};
 
 window.delInvoice = async function(id) {
   const v = S.invoices.find(x=>x.id===id);
@@ -1501,7 +1648,12 @@ window.printInvoice = function(id) {
           <td>${money(v.total)}</td>
         </tr>
       </table>
-      <div class="inv-total">المبلغ النهائي: ${money(v.total)} — ${v.paid?'مدفوعة':'آجلة'}</div>
+      <div class="inv-total">المبلغ النهائي: ${money(v.total)} — ${payStatus(v).label}
+        ${remainOf(v)>0?`<div style="font-size:15px">المسدد: ${money(paidOf(v))} — المتبقي: ${money(remainOf(v))}</div>`:''}</div>
+      ${invPayments(v.id).length ? `<table style="margin-top:10px">
+        <tr><th>تاريخ الدفعة</th><th>المبلغ</th><th>الطريقة</th></tr>
+        ${invPayments(v.id).map(p=>`<tr><td>${esc(p.date)}</td><td>${money(p.amount)}</td><td>${esc(p.method||'نقد')}</td></tr>`).join('')}
+      </table>` : ''}
       ${v.notes?`<p><b>ملاحظات:</b> ${esc(v.notes)}</p>`:''}
       <p style="margin-top:30px; font-size:13px">التوقيع: ______________________</p>
     </div>`;
@@ -2202,13 +2354,14 @@ function allRevenues(from, to) {
       category: 'مبيعات الخلطات',
       source: c ? c.name : '—',
       desc: `${v.invoice_no}${mix?` — ${mix.name}`:''}${v.qty?` (${fmt(v.qty)})`:''}`,
-      amount: Number(v.total), received: !!v.paid
+      amount: Number(v.total), receivedAmt: paidOf(v), status: payStatus(v)
     };
   });
   const manual = S.revenues.filter(r => inPeriod(r.date, from, to)).map(r => ({
     kind: 'revenue', id: r.id, date: r.date,
     category: r.category, source: r.source || '—',
-    desc: r.note || '', amount: Number(r.amount), received: true
+    desc: r.note || '', amount: Number(r.amount), receivedAmt: Number(r.amount),
+    status: { key:'paid', label:'مقبوض', cls:'ok' }
   }));
   return [...fromInvoices, ...manual].sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
 }
@@ -2217,7 +2370,7 @@ function renderRevenues() {
   const from = $('#revFrom').value, to = $('#revTo').value;
   const rows = allRevenues(from, to);
   const total    = rows.reduce((s,r) => s + r.amount, 0);
-  const received = rows.filter(r => r.received).reduce((s,r) => s + r.amount, 0);
+  const received = rows.reduce((s,r) => s + r.receivedAmt, 0);
   const due      = total - received;
   const sales    = rows.filter(r => r.kind === 'invoice').reduce((s,r) => s + r.amount, 0);
   const other    = total - sales;
@@ -2239,10 +2392,11 @@ function renderRevenues() {
       <td>${esc(r.source)}</td>
       <td>${esc(r.desc)}</td>
       <td class="num"><b>${money(r.amount)}</b></td>
-      <td><span class="badge ${r.received?'ok':'low'}">${r.received?'مقبوض':'آجل'}</span></td>
+      <td><span class="badge ${r.status.cls}">${r.status.label}</span>
+        ${r.receivedAmt > 0 && r.receivedAmt < r.amount ? `<div class="hint">قُبض ${fmt(r.receivedAmt)} من ${fmt(r.amount)}</div>` : ''}</td>
       <td><div class="actions">
         ${r.kind==='invoice'
-          ? `<button class="btn sm" onclick="showPage('sales')">↗️ الفاتورة</button>`
+          ? (canEdit('sales') ? `<button class="btn sm ${r.receivedAmt<r.amount?'primary':''}" onclick="paymentsForm(${r.id})">💵 دفعات</button>` : '')
           : (canEdit('revenues') ? `<button class="btn sm" onclick="revenueForm(${r.id})">✏️</button>
              <button class="btn sm danger" onclick="delRevenue(${r.id})">🗑️</button>` : '')}
       </div></td>
@@ -2322,8 +2476,9 @@ async function withdrawalsTotal(from, to) {
 
 async function cashSummary(from, to) {
   const invs = S.invoices.filter(v => inPeriod(v.date, from, to));
-  const collected = invs.filter(v => v.paid).reduce((s,v) => s + Number(v.total), 0);
-  const dueFromCustomers = invs.filter(v => !v.paid).reduce((s,v) => s + Number(v.total), 0);
+  const collected = collectedInPeriod(from, to);
+  const dueFromCustomers = S.invoices.filter(v => inPeriod(v.date, from, to))
+    .reduce((s,v) => s + remainOf(v), 0);
   const otherRev = S.revenues.filter(r => inPeriod(r.date, from, to)).reduce((s,r) => s + Number(r.amount), 0);
   const opening = (!from) ? openingBalance() : 0;   // الافتتاحي يُحتسب عند عرض كل الفترات فقط
 
@@ -2393,7 +2548,7 @@ async function renderCash() {
   $('#cashDuesTable').innerHTML = `
     <tr><th>البند</th><th>المبلغ</th><th>التفاصيل</th></tr>
     <tr><td>📥 مستحق لك على الزبائن</td><td class="num" style="color:var(--green)">${money(c.dueFromCustomers)}</td>
-      <td>${S.invoices.filter(v=>!v.paid && inPeriod(v.date,from,to)).length} فاتورة آجلة</td></tr>
+      <td>${S.invoices.filter(v=>remainOf(v)>0 && inPeriod(v.date,from,to)).length} فاتورة غير مسددة بالكامل</td></tr>
     <tr><td>📤 مستحق عليك للموردين</td><td class="num" style="color:var(--red)">${money(c.dueToSuppliers)}</td>
       <td>${S.movements.filter(m=>m.type==='in'&&m.paid===false&&inPeriod(m.date,from,to)).length} توريد آجل</td></tr>
     <tr style="font-weight:900"><td>صافي الذمم</td>
@@ -2527,7 +2682,7 @@ function renderDashboard() {
   const production = mixes.reduce((s,m)=>s+Number(m.output_qty),0);
   const stockValue = S.materials.reduce((s,m)=>s+qtyOf(m.id)*Number(m.unit_price),0);
   const activeCust = new Set(invs.map(v=>v.customer_id)).size;
-  const unpaid = invs.filter(v=>!v.paid).reduce((s,v)=>s+Number(v.total),0);
+  const unpaid = invs.reduce((s,v)=>s+remainOf(v),0);
   const profit = sales + otherRev - cogs - expTotal;
 
   $('#dashCards').innerHTML = `
