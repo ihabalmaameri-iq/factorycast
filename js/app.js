@@ -589,7 +589,8 @@ function renderSales() {
         <td class="num"><b>${money(v.total)}</b></td>
         <td><span class="badge ${v.paid?'ok':'low'}">${v.paid?'مدفوعة':'آجلة'}</span></td>
         <td><div class="actions">
-          <button class="btn sm" onclick="printInvoice(${v.id})">🖨️ طباعة</button>
+          <button class="btn sm primary" onclick="receiptForm(${v.id})">📄 وصل</button>
+          <button class="btn sm" onclick="printInvoice(${v.id})">🖨️ فاتورة</button>
           ${canEdit('sales') ? `<button class="btn sm" onclick="saleForm(${v.id})">✏️</button>
           <button class="btn sm" onclick="togglePaid(${v.id})">${v.paid?'↩️':'💵 تسديد'}</button>
           <button class="btn sm danger" onclick="delInvoice(${v.id})">🗑️</button>` : ''}
@@ -697,6 +698,64 @@ window.delInvoice = async function(id) {
   if (!confirm(`حذف الفاتورة ${v.invoice_no}؟`)) return;
   try { await DB.remove('invoices', id); toast('تم الحذف', 'ok'); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+// وصل تجهيز كونكريت (بدون أسعار) - بنفس شكل الوصل الورقي
+window.receiptForm = function(id) {
+  const v = S.invoices.find(x=>x.id===id);
+  const c = custById(v.customer_id);
+  const veh = v.vehicle_id ? S.vehicles.find(x=>x.id===v.vehicle_id) : null;
+  const m = v.mixture_id ? mixById(v.mixture_id) : null;
+  modal('📄 وصل تجهيز كونكريت (بدون أسعار)', `
+    <div class="form-grid">
+      <div class="form-row"><label>رقم الوصل</label><input id="rf_no" value="${esc(String(v.id))}" dir="ltr"></div>
+      <div class="form-row"><label>التاريخ</label><input id="rf_date" type="date" value="${esc(v.date)}"></div>
+      <div class="form-row"><label>اسم السائق</label><input id="rf_driver" value="${esc(veh?.driver||'')}"></div>
+      <div class="form-row"><label>رقم الخباطة</label><input id="rf_mixer" value="${esc(veh?.name||'')}"></div>
+      <div class="form-row"><label>تسلسل الخباطة</label><input id="rf_seq"></div>
+      <div class="form-row"><label>كمية الكونكريت</label><input id="rf_qty" value="${esc(String(v.qty||''))}"></div>
+      <div class="form-row"><label>نوع الاسمنت</label><input id="rf_cement" value="${esc(m?.name||'')}"></div>
+      <div class="form-row"><label>كمية الاسمنت</label><input id="rf_cementqty"></div>
+      <div class="form-row"><label>نوع المضاف</label><input id="rf_add"></div>
+      <div class="form-row"><label>كمية المضاف</label><input id="rf_addqty"></div>
+      <div class="form-row"><label>اسم الزبون</label><input id="rf_cust" value="${esc(c?.name||'')}"></div>
+      <div class="form-row"><label>عنوان الزبون</label><input id="rf_addr" value="${esc(v.delivery_location || c?.address || '')}"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="printReceipt()">🖨️ طباعة الوصل</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+
+window.printReceipt = function() {
+  const g = id => esc($('#'+id).value.trim());
+  $('#printArea').innerHTML = `
+    <div class="receipt-print">
+      <div class="rc-head">
+        <div class="rc-title">
+          <div class="rc-name">بوابة الخليج العربي</div>
+          <div class="rc-sub">للكونكريت الجاهز</div>
+          <div class="rc-phone" dir="ltr">07800002060</div>
+        </div>
+        <img src="assets/logo.png" class="rc-logo" alt="" onerror="this.remove()">
+        <div class="rc-no">
+          <div class="rc-no-box">${g('rf_no')}</div>
+          <div class="rc-tag">وصل تجهيز كونكريت</div>
+        </div>
+      </div>
+      <div class="rc-row"><span class="rc-l">التاريخ :</span><span class="rc-v" dir="ltr">${g('rf_date')}</span></div>
+      <div class="rc-row"><span class="rc-l">اسم السائق :</span><span class="rc-v">${g('rf_driver')}</span></div>
+      <div class="rc-row"><span class="rc-l">رقم الخباطة :</span><span class="rc-v">${g('rf_mixer')}</span></div>
+      <div class="rc-row"><span class="rc-l">تسلسل الخباطة :</span><span class="rc-v">${g('rf_seq')}</span></div>
+      <div class="rc-row"><span class="rc-l">كمية الكونكريت :</span><span class="rc-v">${g('rf_qty')}</span></div>
+      <div class="rc-row"><span class="rc-l">نوع الاسمنت :</span><span class="rc-v">${g('rf_cement')}</span><span class="rc-l">الكمية :</span><span class="rc-v">${g('rf_cementqty')}</span></div>
+      <div class="rc-row"><span class="rc-l">نوع المضاف :</span><span class="rc-v">${g('rf_add')}</span><span class="rc-l">الكمية :</span><span class="rc-v">${g('rf_addqty')}</span></div>
+      <div class="rc-row"><span class="rc-l">اسم الزبون :</span><span class="rc-v">${g('rf_cust')}</span></div>
+      <div class="rc-row"><span class="rc-l">عنوان الزبون :</span><span class="rc-v">${g('rf_addr')}</span></div>
+      <div class="rc-sign"><span>اسم المستلم و توقيعه</span><span>الإدارة</span></div>
+    </div>`;
+  closeModal();
+  window.print();
 };
 
 window.printInvoice = function(id) {
