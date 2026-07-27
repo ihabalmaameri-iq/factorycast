@@ -4,7 +4,8 @@
    ===================================================== */
 const DB = (() => {
   const TABLES = ['materials','movements','customers','mixtures','mixture_items','invoices','expenses',
-                  'vehicles','partners','partner_withdrawals','employees','salaries','profiles'];
+                  'vehicles','partners','partner_withdrawals','employees','salaries','profiles',
+                  'recipes','recipe_items'];
   const LS_KEY = 'casting_factory_data';
   let sb = null;            // عميل Supabase
   let backend = 'local';

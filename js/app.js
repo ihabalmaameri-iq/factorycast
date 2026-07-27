@@ -4,7 +4,8 @@
 
 // ---------- الحالة العامة ----------
 const S = { materials:[], movements:[], customers:[], mixtures:[], mixture_items:[], invoices:[], expenses:[],
-            vehicles:[], partners:[], partner_withdrawals:[], employees:[], salaries:[], profiles:[] };
+            vehicles:[], partners:[], partner_withdrawals:[], employees:[], salaries:[], profiles:[],
+            recipes:[], recipe_items:[] };
 let CUR = localStorage.getItem('currency') || 'د.ع';
 
 // ---------- الصلاحيات ----------
@@ -13,15 +14,15 @@ let USER = null;              // مستخدم Supabase الحالي
 const ROLE_NAMES = { owner:'👑 المالك', manager:'📋 المدير', accountant:'🧮 المحاسب' };
 // الصفحات المتاحة لكل دور
 const ROLE_PAGES = {
-  owner:      ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','audit','users','settings'],
-  manager:    ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports'],
-  accountant: ['dashboard','materials','mixtures','customers','sales','vehicles','expenses','employees','reports']
+  owner:      ['dashboard','materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','audit','users','settings'],
+  manager:    ['dashboard','materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports'],
+  accountant: ['dashboard','materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports']
 };
 // أقسام يحق للدور تعديلها (المالك حصرياً: الشركاء، الحسابات، السجل، الإعدادات)
 const ROLE_EDIT = {
-  owner:      ['materials','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
-  manager:    ['materials','mixtures','customers','sales','vehicles','expenses','employees'],
-  accountant: ['materials','mixtures','customers','sales','vehicles','expenses','employees']
+  owner:      ['materials','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
+  manager:    ['materials','recipes','mixtures','customers','sales','vehicles','expenses','employees'],
+  accountant: ['materials','recipes','mixtures','customers','sales','vehicles','expenses','employees']
 };
 const canView = page => ROLE_PAGES[ROLE].includes(page);
 const canEdit = section => ROLE_EDIT[ROLE].includes(section);
@@ -87,7 +88,7 @@ function showPage(page) {
 }
 function renderPage(page) {
   if (!canView(page)) return;
-  ({dashboard:renderDashboard, materials:renderMaterials, mixtures:renderMixtures,
+  ({dashboard:renderDashboard, materials:renderMaterials, recipes:renderRecipes, mixtures:renderMixtures,
     customers:renderCustomers, sales:renderSales, expenses:renderExpenses,
     vehicles:renderVehicles, employees:renderEmployees, partners:renderPartners,
     users:renderUsers, audit:renderAudit, reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
@@ -287,6 +288,239 @@ window.delMaterial = async function(id) {
 };
 
 /* =====================================================
+   📋 الخلطات الجاهزة (وصفات محفوظة)
+   ===================================================== */
+const recipeItems = rid => S.recipe_items.filter(i => i.recipe_id === rid);
+// كلفة الوحدة الواحدة من الوصفة حسب أسعار المواد الحالية
+function recipeUnitCost(rid) {
+  return recipeItems(rid).reduce((s,i) => {
+    const m = matById(i.material_id);
+    return s + Number(i.qty_per_unit) * (m ? Number(m.unit_price) : 0);
+  }, 0);
+}
+
+function renderRecipes() {
+  const ce = canEdit('recipes');
+  if (!S.recipes.length) {
+    $('#recipesList').innerHTML = `<div class="panel"><p class="empty-row">لا توجد خلطات جاهزة بعد — اضغط "➕ خلطة جاهزة جديدة" لتعريف أول خلطة</p></div>`;
+    return;
+  }
+  $('#recipesList').innerHTML = S.recipes.map(r => {
+    const items = recipeItems(r.id);
+    const used = S.mixtures.filter(m => m.recipe_id === r.id).length;
+    const rows = items.map(i => {
+      const m = matById(i.material_id);
+      const avail = m ? qtyOf(m.id) : 0;
+      return `<tr>
+        <td>${esc(m?m.name:'— مادة محذوفة —')}</td>
+        <td class="num">${fmt(i.qty_per_unit)} ${esc(m?m.unit:'')}</td>
+        <td class="num">${money(Number(i.qty_per_unit) * (m?Number(m.unit_price):0))}</td>
+        <td class="num">${fmt(avail)} ${esc(m?m.unit:'')}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="panel recipe-card">
+      <div class="recipe-head">
+        <div>
+          <h3 style="margin:0">📋 ${esc(r.name)}</h3>
+          <div class="hint">${items.length} مكوّن — الكلفة لكل ${esc(r.unit)}: <b>${money(recipeUnitCost(r.id))}</b>${used?` — استُخدمت ${used} مرة`:''}</div>
+        </div>
+        <div class="actions">
+          <button class="btn sm primary" onclick="useRecipe(${r.id})">▶️ تنفيذ خلطة منها</button>
+          ${ce ? `<button class="btn sm" onclick="recipeForm(${r.id})">✏️</button>
+          <button class="btn sm danger" onclick="delRecipe(${r.id})">🗑️</button>` : ''}
+        </div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>المادة</th><th>الكمية لكل ${esc(r.unit)}</th><th>الكلفة</th><th>المتوفر بالمخزن</th></tr>
+        ${rows || '<tr><td colspan="4" class="empty-row">لا توجد مكونات</td></tr>'}
+      </table></div>
+      ${r.notes ? `<div class="hint" style="margin-top:8px">📝 ${esc(r.notes)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+let rcpCounter = 0;
+window.recipeForm = function(id) {
+  if (!S.materials.length) return toast('أضف مواد خام أولاً', 'err');
+  const r = id ? S.recipes.find(x=>x.id===id) : null;
+  const items = id ? recipeItems(id) : [];
+  modal(r ? 'تعديل خلطة جاهزة' : 'خلطة جاهزة جديدة', `
+    <div class="form-grid">
+      <div class="form-row"><label>اسم الخلطة *</label><input id="f_name" value="${esc(r?.name||'')}" placeholder="خرسانة C30 / سمنت كار مقاوم"></div>
+      <div class="form-row"><label>وحدة الإنتاج</label>
+        <select id="f_unit">${['م³','طن','كغم','لتر','قطعة'].map(u=>`<option ${r?.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-row"><label>المكونات — الكمية المطلوبة لإنتاج <b>وحدة واحدة</b></label>
+      <div id="rcpList"></div>
+      <button class="btn sm" onclick="addRcpRow()">➕ إضافة مكوّن</button>
+    </div>
+    <div class="calc-box" id="rcpCalc"></div>
+    <div class="form-row" style="margin-top:12px"><label>ملاحظات</label><input id="f_notes" value="${esc(r?.notes||'')}"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveRecipe(${id||0})">💾 حفظ الخلطة الجاهزة</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+  $('#rcpList').innerHTML = '';
+  rcpCounter = 0;
+  if (items.length) items.forEach(i => addRcpRow(i.material_id, i.qty_per_unit));
+  else addRcpRow();
+  recalcRcp();
+};
+
+window.addRcpRow = function(matId, qty) {
+  const rid = ++rcpCounter;
+  const div = document.createElement('div');
+  div.className = 'ing-row'; div.id = 'rcp'+rid;
+  div.innerHTML = `
+    <select class="rcp-mat" onchange="recalcRcp()">
+      <option value="">— اختر مادة —</option>
+      ${S.materials.map(m=>`<option value="${m.id}" ${m.id===matId?'selected':''}>${esc(m.name)} (${esc(m.unit)})</option>`).join('')}
+    </select>
+    <input class="rcp-qty" type="number" min="0" step="any" placeholder="الكمية" value="${qty??''}" oninput="recalcRcp()">
+    <div class="ing-pct">—</div>
+    <button class="ing-del" onclick="document.getElementById('rcp${rid}').remove(); recalcRcp()">✕</button>`;
+  $('#rcpList').appendChild(div);
+};
+
+function readRcpItems() {
+  return $$('#rcpList .ing-row').map(r => ({
+    material_id: Number(r.querySelector('.rcp-mat').value),
+    qty_per_unit: Number(r.querySelector('.rcp-qty').value)
+  })).filter(i => i.material_id && i.qty_per_unit > 0);
+}
+
+window.recalcRcp = function() {
+  const items = readRcpItems();
+  const total = items.reduce((s,i)=>s+i.qty_per_unit, 0);
+  $$('#rcpList .ing-row').forEach(r => {
+    const q = Number(r.querySelector('.rcp-qty').value);
+    r.querySelector('.ing-pct').textContent = (q>0 && total>0) ? (q/total*100).toFixed(1)+'%' : '—';
+  });
+  const cost = items.reduce((s,i) => {
+    const m = matById(i.material_id);
+    return s + i.qty_per_unit * (m?Number(m.unit_price):0);
+  }, 0);
+  const unit = $('#f_unit')?.value || 'وحدة';
+  $('#rcpCalc').innerHTML = `مجموع المكونات لكل ${esc(unit)}: <b>${fmt(total)}</b> &nbsp;|&nbsp; الكلفة التقديرية لكل ${esc(unit)}: <b>${money(cost)}</b>`;
+};
+
+window.saveRecipe = async function(id) {
+  const name = $('#f_name').value.trim();
+  if (!name) return toast('اسم الخلطة مطلوب', 'err');
+  if (S.recipes.find(r => r.name === name && r.id !== id)) return toast('⚠️ توجد خلطة جاهزة بنفس الاسم', 'err');
+  const items = readRcpItems();
+  if (!items.length) return toast('أضف مكوّناً واحداً على الأقل', 'err');
+  const data = { name, unit: $('#f_unit').value, notes: $('#f_notes').value.trim() };
+  try {
+    let rid = id;
+    if (id) {
+      await DB.update('recipes', id, data);
+      for (const it of recipeItems(id)) await DB.remove('recipe_items', it.id);
+    } else {
+      const row = await DB.insert('recipes', data);
+      rid = row.id;
+    }
+    for (const i of items) await DB.insert('recipe_items', { recipe_id: rid, material_id: i.material_id, qty_per_unit: i.qty_per_unit });
+    closeModal(); toast('تم حفظ الخلطة الجاهزة ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+window.delRecipe = async function(id) {
+  const r = S.recipes.find(x=>x.id===id);
+  if (!confirm(`حذف الخلطة الجاهزة "${r.name}"؟\n(الخلطات المنفذة سابقاً لن تتأثر)`)) return;
+  try { await DB.remove('recipes', id); toast('تم الحذف', 'ok'); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+// تنفيذ خلطة من وصفة جاهزة: اختر الكمية فقط
+window.useRecipe = function(rid) {
+  const r = S.recipes.find(x=>x.id===rid);
+  modal(`▶️ تنفيذ خلطة: ${esc(r.name)}`, `
+    <div class="form-grid">
+      <div class="form-row"><label>الكمية المطلوبة (${esc(r.unit)}) *</label>
+        <input id="ur_qty" type="number" min="0" step="any" value="1" oninput="urPreview(${rid})"></div>
+      <div class="form-row"><label>التاريخ</label><input id="ur_date" type="date" value="${today()}"></div>
+    </div>
+    <div class="form-row"><label>الزبون (اختياري)</label>
+      <select id="ur_cust"><option value="">— بدون زبون —</option>
+      ${S.customers.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+    <div class="form-row"><label>المواد التي ستُخصم من المخزون</label>
+      <div class="tbl-wrap"><table class="tbl" id="urTable"></table></div></div>
+    <div class="calc-box" id="urCalc"></div>
+    <div class="form-row" style="margin-top:12px"><label>ملاحظات</label><input id="ur_notes"></div>
+    <div class="form-actions">
+      <button class="btn primary" id="urBtn" onclick="runRecipe(${rid})">▶️ تنفيذ وخصم المواد</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+  urPreview(rid);
+};
+
+window.urPreview = function(rid) {
+  const r = S.recipes.find(x=>x.id===rid);
+  const qty = Number($('#ur_qty').value) || 0;
+  const items = recipeItems(rid);
+  let cost = 0, short = false;
+  const rows = items.map(i => {
+    const m = matById(i.material_id);
+    const need = Number(i.qty_per_unit) * qty;
+    const avail = m ? qtyOf(m.id) : 0;
+    const ok = need <= avail;
+    if (!ok) short = true;
+    cost += need * (m?Number(m.unit_price):0);
+    return `<tr>
+      <td>${esc(m?m.name:'—')}</td>
+      <td class="num"><b>${fmt(need)}</b> ${esc(m?m.unit:'')}</td>
+      <td class="num">${fmt(avail)}</td>
+      <td><span class="badge ${ok?'ok':'low'}">${ok?'✔ متوفر':'⚠️ ناقص'}</span></td>
+    </tr>`;
+  }).join('');
+  $('#urTable').innerHTML = `
+    <tr><th>المادة</th><th>المطلوب</th><th>المتوفر</th><th>الحالة</th></tr>
+    ${rows || '<tr><td colspan="4" class="empty-row">لا مكونات</td></tr>'}`;
+  $('#urCalc').innerHTML = `الكمية: <b>${fmt(qty)} ${esc(r.unit)}</b> &nbsp;|&nbsp; الكلفة الإجمالية: <b>${money(cost)}</b>
+    ${short?'<div style="color:var(--red);margin-top:6px">⚠️ لا يمكن التنفيذ — مواد غير كافية في المخزون</div>':''}`;
+  const btn = $('#urBtn');
+  if (btn) { btn.disabled = short || qty <= 0; btn.style.opacity = (short || qty<=0) ? .5 : 1; }
+};
+
+window.runRecipe = async function(rid) {
+  const r = S.recipes.find(x=>x.id===rid);
+  const qty = Number($('#ur_qty').value) || 0;
+  if (qty <= 0) return toast('أدخل كمية صحيحة', 'err');
+  const items = recipeItems(rid);
+  // فحص المخزون مرة أخيرة
+  for (const i of items) {
+    const need = Number(i.qty_per_unit) * qty;
+    if (need > qtyOf(i.material_id)) {
+      const m = matById(i.material_id);
+      return toast(`⚠️ المخزون لا يكفي من: ${m?m.name:''}`, 'err');
+    }
+  }
+  const date = $('#ur_date').value || today();
+  try {
+    const mix = await DB.insert('mixtures', {
+      name: r.name, date, output_qty: qty, output_unit: r.unit,
+      customer_id: Number($('#ur_cust').value) || null,
+      notes: $('#ur_notes').value.trim(), recipe_id: rid,
+      status: 'draft', cost: 0
+    });
+    let cost = 0;
+    for (const i of items) {
+      const need = Number(i.qty_per_unit) * qty;
+      const m = matById(i.material_id);
+      cost += need * Number(m.unit_price);
+      await DB.insert('mixture_items', { mixture_id: mix.id, material_id: i.material_id, qty: need });
+      await DB.insert('movements', { material_id: i.material_id, type:'out', qty: need,
+        note: `تنفيذ خلطة جاهزة: ${r.name} (#${mix.id})`, date });
+    }
+    await DB.update('mixtures', mix.id, { status:'executed', cost });
+    closeModal();
+    toast(`✔ تم تنفيذ ${fmt(qty)} ${r.unit} — الكلفة: ${money(cost)}`, 'ok');
+    await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
    ⚗️ الخلطات
    ===================================================== */
 function renderMixtures() {
@@ -337,6 +571,12 @@ window.mixtureForm = function(id) {
       <select id="f_cust"><option value="">— بدون زبون —</option>
       ${S.customers.map(c=>`<option value="${c.id}" ${m?.customer_id===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>
     ${executed ? '<div class="hint">⚠️ الخلطة منفذة — المكونات مثبتة لأن المواد خُصمت من المخزون. يمكن تعديل البيانات الأساسية فقط.</div>' : `
+    ${S.recipes.length ? `<div class="form-row"><label>📋 تعبئة من خلطة جاهزة (اختياري)</label>
+      <select id="f_recipe" onchange="fillFromRecipe()">
+        <option value="">— إدخال المكونات يدوياً —</option>
+        ${S.recipes.map(r=>`<option value="${r.id}">${esc(r.name)} (لكل ${esc(r.unit)})</option>`).join('')}
+      </select>
+      <div class="hint">اختر خلطة جاهزة فتُعبأ المكونات تلقائياً مضروبة بكمية المنتج أعلاه.</div></div>` : ''}
     <div class="form-row"><label>المكونات (من المخزون)</label>
       <div id="ingList"></div>
       <button class="btn sm" onclick="addIngRow()">➕ إضافة مكوّن</button>
@@ -354,6 +594,23 @@ window.mixtureForm = function(id) {
     else addIngRow();
     recalcMix();
   }
+};
+
+// تعبئة مكونات الخلطة من وصفة جاهزة (مضروبة بالكمية)
+window.fillFromRecipe = function() {
+  const rid = Number($('#f_recipe').value);
+  if (!rid) return;
+  const r = S.recipes.find(x=>x.id===rid);
+  const mult = Number($('#f_out').value) || 1;
+  if (!$('#f_name').value.trim()) $('#f_name').value = r.name;
+  const unitSel = $('#f_outunit');
+  if ([...unitSel.options].some(o => o.value === r.unit)) unitSel.value = r.unit;
+  if (!Number($('#f_out').value)) $('#f_out').value = 1;
+  $('#ingList').innerHTML = '';
+  ingCounter = 0;
+  recipeItems(rid).forEach(i => addIngRow(i.material_id, Number(i.qty_per_unit) * mult));
+  recalcMix();
+  toast(`تم تعبئة مكونات "${r.name}" لـ ${fmt(mult)} ${r.unit}`, 'ok');
 };
 
 window.addIngRow = function(matId, qty) {
@@ -1688,6 +1945,7 @@ $('#btnSaveCurrency').onclick = () => {
 
 // ---------- أزرار الإضافة ----------
 $('#btnAddMaterial').onclick = () => materialForm(0);
+$('#btnAddRecipe').onclick = () => recipeForm(0);
 $('#btnAddMixture').onclick = () => mixtureForm(0);
 $('#btnAddCustomer').onclick = () => customerForm(0);
 $('#btnAddSale').onclick = () => saleForm();
@@ -1704,7 +1962,7 @@ function applyPermissions() {
   // إخفاء صفحات القائمة غير المسموحة
   $$('.nav-btn').forEach(b => b.style.display = canView(b.dataset.page) ? '' : 'none');
   // إخفاء أزرار الإضافة حسب الدور
-  const addBtns = { btnAddMaterial:'materials', btnAddMixture:'mixtures', btnAddCustomer:'customers',
+  const addBtns = { btnAddMaterial:'materials', btnAddRecipe:'recipes', btnAddMixture:'mixtures', btnAddCustomer:'customers',
     btnAddSale:'sales', btnAddExpense:'expenses', btnAddVehicle:'vehicles',
     btnAddEmployee:'employees', btnAddPartner:'partners', btnAddUser:'users' };
   Object.entries(addBtns).forEach(([btn, section]) => {
