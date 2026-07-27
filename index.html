@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=14">
+<link rel="stylesheet" href="css/style.css?v=15">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -26,7 +26,9 @@
       <button class="nav-btn" data-page="customers">👥 الزبائن</button>
       <button class="nav-btn" data-page="sales">🧾 المبيعات والفواتير</button>
       <button class="nav-btn" data-page="vehicles">🚚 النقل والعربات</button>
+      <button class="nav-btn" data-page="revenues">💵 الإيرادات</button>
       <button class="nav-btn" data-page="expenses">💰 المصروفات</button>
+      <button class="nav-btn" data-page="cash">🏦 القاصة</button>
       <button class="nav-btn" data-page="employees">👷 الموظفون والرواتب</button>
       <button class="nav-btn" data-page="partners">🤝 الشركاء والأرباح</button>
       <button class="nav-btn" data-page="reports">📈 التقارير</button>
@@ -203,6 +205,50 @@
       <div class="panel"><h3>ℹ️ الصلاحيات</h3><div id="rolesHelp"></div></div>
     </section>
 
+    <!-- الإيرادات -->
+    <section class="page" id="page-revenues">
+      <div class="page-head"><h1>💵 الإيرادات والمقبوضات</h1>
+        <div class="filters">
+          <label>من <input type="date" id="revFrom"></label>
+          <label>إلى <input type="date" id="revTo"></label>
+          <button class="btn" id="revApply">🔄 تصفية</button>
+          <button class="btn primary" id="btnAddRevenue">➕ إيراد آخر</button>
+        </div>
+      </div>
+      <p class="muted">مبالغ الخلطات والفواتير تدخل هنا تلقائياً — وتضيف يدوياً أي إيراد آخر (إيجارات، بيع خردة، رأس مال...).</p>
+      <div class="cards" id="revCards"></div>
+      <div class="panel"><h3>📒 كل الإيرادات</h3>
+        <div class="tbl-wrap"><table class="tbl" id="revTable"></table></div></div>
+      <div class="grid-2">
+        <div class="panel"><h3>📊 الإيرادات شهرياً</h3><div id="revChart" class="barchart"></div></div>
+        <div class="panel"><h3>🗂️ حسب المصدر</h3><div class="tbl-wrap"><table class="tbl" id="revBySrc"></table></div></div>
+      </div>
+    </section>
+
+    <!-- القاصة -->
+    <section class="page" id="page-cash">
+      <div class="page-head"><h1>🏦 القاصة — مطابقة الصندوق</h1>
+        <div class="filters">
+          <label>من <input type="date" id="cashFrom"></label>
+          <label>إلى <input type="date" id="cashTo"></label>
+          <button class="btn" id="cashApply">🔄 تحديث</button>
+          <button class="btn" id="btnOpening">⚙️ الرصيد الافتتاحي</button>
+          <button class="btn primary" id="btnCashCount">🧮 جرد القاصة</button>
+          <button class="btn" id="btnCashPrint">🖨️ طباعة</button>
+        </div>
+      </div>
+      <div class="cards" id="cashCards"></div>
+      <div class="grid-2">
+        <div class="panel"><h3>⬇️ الداخل إلى القاصة</h3><div class="tbl-wrap"><table class="tbl" id="cashInTable"></table></div></div>
+        <div class="panel"><h3>⬆️ الخارج من القاصة</h3><div class="tbl-wrap"><table class="tbl" id="cashOutTable"></table></div></div>
+      </div>
+      <div class="panel" id="cashResultPanel"></div>
+      <div class="grid-2">
+        <div class="panel"><h3>📌 الذمم المستحقة</h3><div class="tbl-wrap"><table class="tbl" id="cashDuesTable"></table></div></div>
+        <div class="panel"><h3>🧮 سجل الجرد السابق</h3><div class="tbl-wrap"><table class="tbl" id="cashCountsTable"></table></div></div>
+      </div>
+    </section>
+
     <!-- المصروفات -->
     <section class="page" id="page-expenses">
       <div class="page-head"><h1>💰 المصروفات</h1>
@@ -307,7 +353,7 @@
 
 <div id="toast"></div>
 
-<script src="js/db.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/db.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
 </body>
 </html>

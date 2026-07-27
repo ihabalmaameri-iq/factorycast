@@ -5,7 +5,8 @@
 // ---------- الحالة العامة ----------
 const S = { materials:[], movements:[], customers:[], mixtures:[], mixture_items:[], invoices:[], expenses:[],
             vehicles:[], partners:[], partner_withdrawals:[], employees:[], salaries:[], profiles:[],
-            recipes:[], recipe_items:[], suppliers:[], supplier_vehicles:[] };
+            recipes:[], recipe_items:[], suppliers:[], supplier_vehicles:[],
+            revenues:[], cash_counts:[], app_settings:[] };
 let CUR = localStorage.getItem('currency') || 'د.ع';
 
 // ---------- الصلاحيات ----------
@@ -14,15 +15,15 @@ let USER = null;              // مستخدم Supabase الحالي
 const ROLE_NAMES = { owner:'👑 المالك', manager:'📋 المدير', accountant:'🧮 المحاسب' };
 // الصفحات المتاحة لكل دور
 const ROLE_PAGES = {
-  owner:      ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','reports','audit','users','settings'],
-  manager:    ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports'],
-  accountant: ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','reports']
+  owner:      ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','revenues','expenses','cash','employees','partners','reports','audit','users','settings'],
+  manager:    ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','revenues','expenses','cash','employees','reports'],
+  accountant: ['dashboard','materials','suppliers','recipes','mixtures','customers','sales','vehicles','revenues','expenses','cash','employees','reports']
 };
 // أقسام يحق للدور تعديلها (المالك حصرياً: الشركاء، الحسابات، السجل، الإعدادات)
 const ROLE_EDIT = {
-  owner:      ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees','partners','users'],
-  manager:    ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees'],
-  accountant: ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','expenses','employees']
+  owner:      ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','revenues','expenses','cash','employees','partners','users'],
+  manager:    ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','revenues','expenses','cash','employees'],
+  accountant: ['materials','suppliers','recipes','mixtures','customers','sales','vehicles','revenues','expenses','cash','employees']
 };
 const canView = page => ROLE_PAGES[ROLE].includes(page);
 const canEdit = section => ROLE_EDIT[ROLE].includes(section);
@@ -94,6 +95,7 @@ function renderPage(page) {
   ({dashboard:renderDashboard, materials:renderMaterials, suppliers:renderSuppliers,
     recipes:renderRecipes, mixtures:renderMixtures,
     customers:renderCustomers, sales:renderSales, expenses:renderExpenses,
+    revenues:renderRevenues, cash:renderCash,
     vehicles:renderVehicles, employees:renderEmployees, partners:renderPartners,
     users:renderUsers, audit:renderAudit, reports:renderReports, settings:renderSettings}[page] || (()=>{}))();
 }
@@ -1788,7 +1790,8 @@ function netProfit(from, to) {
   const dfees = invs.reduce((s,v)=>s+Number(v.delivery_fee||0),0);
   const exps = S.expenses.filter(e => (!from && !to) || inRange(e.date, from, to)).reduce((s,e)=>s+Number(e.amount),0);
   const sals = salariesTotal(from, to);
-  return { sales, cogs, exps, sals, dfees, profit: sales - cogs - exps - sals };
+  const otherRev = S.revenues.filter(r => (!from && !to) || inRange(r.date, from, to)).reduce((s,r)=>s+Number(r.amount),0);
+  return { sales, cogs, exps, sals, dfees, otherRev, profit: sales + otherRev - cogs - exps - sals };
 }
 
 function renderPartners() {
@@ -1799,7 +1802,7 @@ function renderPartners() {
 
   $('#parCards').innerHTML = `
     <div class="card ${np.profit>=0?'green':'red'}"><div class="c-label">💰 صافي الربح ${from||to?'(للفترة)':'الكلي'}</div><div class="c-value">${money(np.profit)}</div>
-      <div class="c-sub">مبيعات ${fmt(np.sales)} − مواد ${fmt(np.cogs)} − مصاريف ${fmt(np.exps)} − رواتب ${fmt(np.sals)}</div></div>
+      <div class="c-sub">مبيعات ${fmt(np.sales)}${np.otherRev?` + إيرادات ${fmt(np.otherRev)}`:''} − مواد ${fmt(np.cogs)} − مصاريف ${fmt(np.exps)} − رواتب ${fmt(np.sals)}</div></div>
     <div class="card blue"><div class="c-label">عدد الشركاء</div><div class="c-value">${S.partners.length}</div>
       <div class="c-sub">${totalPct !== 100 && S.partners.length ? `⚠️ مجموع النسب ${fmt(totalPct)}% (يفضل 100%)` : 'مجموع النسب 100% ✔'}</div></div>
     <div class="card amber"><div class="c-label">إجمالي السحوبات</div><div class="c-value">${money(totalWd)}</div></div>`;
@@ -2084,7 +2087,8 @@ const AUDIT_TABLES = {
   expenses:'المصاريف', vehicles:'العربات', partners:'الشركاء',
   partner_withdrawals:'سحوبات الشركاء', employees:'الموظفون', salaries:'الرواتب', profiles:'حسابات الدخول',
   recipes:'الخلطات الجاهزة', recipe_items:'مكونات الخلطات الجاهزة',
-  suppliers:'الموردون', supplier_vehicles:'عربات الموردين'
+  suppliers:'الموردون', supplier_vehicles:'عربات الموردين',
+  revenues:'الإيرادات', cash_counts:'جرد القاصة', app_settings:'إعدادات النظام'
 };
 const AUDIT_ACTIONS = {
   insert:['➕ إضافة','ok'], update:['✏️ تعديل','draft'], delete:['🗑️ حذف','low']
@@ -2182,6 +2186,324 @@ function drawAuditRows() {
 $('#audApply').onclick = renderAudit;
 
 /* =====================================================
+   💵 الإيرادات والمقبوضات
+   ===================================================== */
+const REV_CATS = ['إيجارات','بيع خردة','دعم / رأس مال','فوائد','أخرى'];
+const inPeriod = (d, from, to) => (!from && !to) || inRange(d, from, to);
+const openingBalance = () => Number(S.app_settings.find(s => s.key === 'opening_balance')?.value || 0);
+
+// كل الإيرادات موحّدة: فواتير المبيعات (تلقائي) + إيرادات أخرى (يدوي)
+function allRevenues(from, to) {
+  const fromInvoices = S.invoices.filter(v => inPeriod(v.date, from, to)).map(v => {
+    const c = custById(v.customer_id);
+    const mix = v.mixture_id ? mixById(v.mixture_id) : null;
+    return {
+      kind: 'invoice', id: v.id, date: v.date,
+      category: 'مبيعات الخلطات',
+      source: c ? c.name : '—',
+      desc: `${v.invoice_no}${mix?` — ${mix.name}`:''}${v.qty?` (${fmt(v.qty)})`:''}`,
+      amount: Number(v.total), received: !!v.paid
+    };
+  });
+  const manual = S.revenues.filter(r => inPeriod(r.date, from, to)).map(r => ({
+    kind: 'revenue', id: r.id, date: r.date,
+    category: r.category, source: r.source || '—',
+    desc: r.note || '', amount: Number(r.amount), received: true
+  }));
+  return [...fromInvoices, ...manual].sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+}
+
+function renderRevenues() {
+  const from = $('#revFrom').value, to = $('#revTo').value;
+  const rows = allRevenues(from, to);
+  const total    = rows.reduce((s,r) => s + r.amount, 0);
+  const received = rows.filter(r => r.received).reduce((s,r) => s + r.amount, 0);
+  const due      = total - received;
+  const sales    = rows.filter(r => r.kind === 'invoice').reduce((s,r) => s + r.amount, 0);
+  const other    = total - sales;
+
+  $('#revCards').innerHTML = `
+    <div class="card green"><div class="c-label">💵 إجمالي الإيرادات</div><div class="c-value">${money(total)}</div>
+      <div class="c-sub">${rows.length} عملية</div></div>
+    <div class="card blue"><div class="c-label">🧾 مبيعات الخلطات</div><div class="c-value">${money(sales)}</div>
+      <div class="c-sub">تلقائياً من الفواتير</div></div>
+    <div class="card amber"><div class="c-label">➕ إيرادات أخرى</div><div class="c-value">${money(other)}</div></div>
+    <div class="card ${due>0?'red':'green'}"><div class="c-label">💰 المقبوض فعلاً</div><div class="c-value">${money(received)}</div>
+      <div class="c-sub">${due>0?`لم يُقبض بعد: ${money(due)}`:'كل الإيرادات مقبوضة ✔'}</div></div>`;
+
+  $('#revTable').innerHTML = `
+    <tr><th>التاريخ</th><th>النوع</th><th>المصدر</th><th>البيان</th><th>المبلغ</th><th>الاستلام</th><th></th></tr>
+    ${rows.map(r => `<tr>
+      <td>${esc(r.date)}</td>
+      <td><span class="badge ${r.kind==='invoice'?'done':'draft'}">${esc(r.category)}</span></td>
+      <td>${esc(r.source)}</td>
+      <td>${esc(r.desc)}</td>
+      <td class="num"><b>${money(r.amount)}</b></td>
+      <td><span class="badge ${r.received?'ok':'low'}">${r.received?'مقبوض':'آجل'}</span></td>
+      <td><div class="actions">
+        ${r.kind==='invoice'
+          ? `<button class="btn sm" onclick="showPage('sales')">↗️ الفاتورة</button>`
+          : (canEdit('revenues') ? `<button class="btn sm" onclick="revenueForm(${r.id})">✏️</button>
+             <button class="btn sm danger" onclick="delRevenue(${r.id})">🗑️</button>` : '')}
+      </div></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty-row">لا توجد إيرادات ضمن هذه الفترة</td></tr>'}`;
+
+  // مخطط شهري
+  const byMonth = {};
+  rows.forEach(r => { const mo = (r.date||'').slice(0,7); byMonth[mo] = (byMonth[mo]||0) + r.amount; });
+  const months = Object.keys(byMonth).sort().slice(-8);
+  const max = Math.max(...months.map(m=>byMonth[m]), 1);
+  $('#revChart').innerHTML = months.map(mo => `
+    <div class="bar-col">
+      <div class="bar-val">${fmt(byMonth[mo])}</div>
+      <div class="bar" style="height:${Math.max(byMonth[mo]/max*100,1.5)}%"></div>
+      <div class="bar-label">${mo}</div>
+    </div>`).join('') || '<p class="muted">لا بيانات</p>';
+
+  // حسب المصدر
+  const bySrc = {};
+  rows.forEach(r => {
+    bySrc[r.category] = bySrc[r.category] || { n:0, total:0 };
+    bySrc[r.category].n++; bySrc[r.category].total += r.amount;
+  });
+  $('#revBySrc').innerHTML = `
+    <tr><th>المصدر</th><th>عدد</th><th>المبلغ</th><th>النسبة</th></tr>
+    ${Object.entries(bySrc).sort((a,b)=>b[1].total-a[1].total).map(([k,v]) => `<tr>
+      <td>${esc(k)}</td><td class="num">${v.n}</td><td class="num">${money(v.total)}</td>
+      <td class="num">${fmt((total>0?v.total/total*100:0).toFixed(1))}%</td></tr>`).join('')
+      || '<tr><td colspan="4" class="empty-row">لا بيانات</td></tr>'}`;
+}
+$('#revApply').onclick = renderRevenues;
+
+window.revenueForm = function(id) {
+  const r = id ? S.revenues.find(x=>x.id===id) : null;
+  modal(r ? 'تعديل إيراد' : 'إيراد جديد', `
+    <div class="form-grid">
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${esc(r?.date||today())}"></div>
+      <div class="form-row"><label>النوع</label>
+        <select id="f_cat">${REV_CATS.map(c=>`<option ${r?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="form-row"><label>المصدر / الجهة</label><input id="f_src" value="${esc(r?.source||'')}" placeholder="اسم الجهة"></div>
+      <div class="form-row"><label>المبلغ (${CUR}) *</label><input id="f_amount" type="number" min="0" step="any" value="${r?.amount??''}"></div>
+    </div>
+    <div class="form-row"><label>ملاحظة</label><input id="f_note" value="${esc(r?.note||'')}"></div>
+    <div class="hint">💡 لا تُدخل مبيعات الخلطات هنا — تدخل تلقائياً من الفواتير.</div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveRevenue(${id||0})">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveRevenue = async function(id) {
+  const amount = Number($('#f_amount').value);
+  if (!amount || amount <= 0) return toast('أدخل مبلغاً صحيحاً', 'err');
+  const data = { date: $('#f_date').value||today(), category: $('#f_cat').value,
+    source: $('#f_src').value.trim(), amount, note: $('#f_note').value.trim() };
+  try {
+    if (id) await DB.update('revenues', id, data); else await DB.insert('revenues', data);
+    closeModal(); toast('تم الحفظ ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delRevenue = async function(id) {
+  if (!confirm('حذف هذا الإيراد؟')) return;
+  try { await DB.remove('revenues', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+/* =====================================================
+   🏦 القاصة — مطابقة الداخل والخارج
+   ===================================================== */
+async function withdrawalsTotal(from, to) {
+  if (ROLE === 'owner' || DB.backend !== 'supabase') {
+    return S.partner_withdrawals.filter(w => inPeriod(w.date, from, to))
+      .reduce((s,w) => s + Number(w.amount), 0);
+  }
+  try { return Number(await DB.rpc('withdrawals_total', { d_from: from||null, d_to: to||null })) || 0; }
+  catch { return 0; }
+}
+
+async function cashSummary(from, to) {
+  const invs = S.invoices.filter(v => inPeriod(v.date, from, to));
+  const collected = invs.filter(v => v.paid).reduce((s,v) => s + Number(v.total), 0);
+  const dueFromCustomers = invs.filter(v => !v.paid).reduce((s,v) => s + Number(v.total), 0);
+  const otherRev = S.revenues.filter(r => inPeriod(r.date, from, to)).reduce((s,r) => s + Number(r.amount), 0);
+  const opening = (!from) ? openingBalance() : 0;   // الافتتاحي يُحتسب عند عرض كل الفترات فقط
+
+  const purchases = S.movements.filter(m => m.type === 'in' && inPeriod(m.date, from, to));
+  const purchasesPaid = purchases.filter(m => m.paid !== false).reduce((s,m) => s + movValue(m), 0);
+  const dueToSuppliers = purchases.filter(m => m.paid === false).reduce((s,m) => s + movValue(m), 0);
+  const expenses = S.expenses.filter(e => inPeriod(e.date, from, to)).reduce((s,e) => s + Number(e.amount), 0);
+  const salaries = S.salaries.filter(s2 => inPeriod(s2.date, from, to)).reduce((s,x) => s + Number(x.amount), 0);
+  const withdrawals = await withdrawalsTotal(from, to);
+
+  const totalIn  = opening + collected + otherRev;
+  const totalOut = purchasesPaid + expenses + salaries + withdrawals;
+  return { opening, collected, otherRev, totalIn, purchasesPaid, expenses, salaries, withdrawals,
+           totalOut, expected: totalIn - totalOut, dueFromCustomers, dueToSuppliers,
+           invCount: invs.length, period: (from||to) ? `${from||'البداية'} ← ${to||'اليوم'}` : 'كل الفترات' };
+}
+
+let CASH = null;
+async function renderCash() {
+  const from = $('#cashFrom').value, to = $('#cashTo').value;
+  const c = await cashSummary(from, to);
+  CASH = c;
+
+  const lastCount = [...S.cash_counts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id)[0];
+
+  $('#cashCards').innerHTML = `
+    <div class="card green"><div class="c-label">⬇️ إجمالي الداخل</div><div class="c-value">${money(c.totalIn)}</div>
+      <div class="c-sub">${c.opening>0?`منها افتتاحي: ${money(c.opening)}`:''}</div></div>
+    <div class="card red"><div class="c-label">⬆️ إجمالي الخارج</div><div class="c-value">${money(c.totalOut)}</div></div>
+    <div class="card ${c.expected>=0?'blue':'red'}"><div class="c-label">🏦 المفروض في القاصة</div>
+      <div class="c-value">${money(c.expected)}</div><div class="c-sub">${esc(c.period)}</div></div>
+    <div class="card amber"><div class="c-label">📌 ذمم على الزبائن</div><div class="c-value">${money(c.dueFromCustomers)}</div>
+      <div class="c-sub">${c.dueToSuppliers>0?`وعليك للموردين: ${money(c.dueToSuppliers)}`:''}</div></div>`;
+
+  $('#cashInTable').innerHTML = `
+    <tr><th>البند</th><th>المبلغ</th></tr>
+    ${c.opening ? `<tr><td>💼 رصيد افتتاحي</td><td class="num">${money(c.opening)}</td></tr>` : ''}
+    <tr><td>🧾 مقبوضات فواتير المبيعات</td><td class="num">${money(c.collected)}</td></tr>
+    <tr><td>➕ إيرادات أخرى</td><td class="num">${money(c.otherRev)}</td></tr>
+    <tr style="background:#f0fdf4;font-weight:900"><td>الإجمالي الداخل</td><td class="num">${money(c.totalIn)}</td></tr>`;
+
+  $('#cashOutTable').innerHTML = `
+    <tr><th>البند</th><th>المبلغ</th></tr>
+    <tr><td>🏪 مشتريات مواد مسددة</td><td class="num">${money(c.purchasesPaid)}</td></tr>
+    <tr><td>💰 مصروفات تشغيلية</td><td class="num">${money(c.expenses)}</td></tr>
+    <tr><td>👷 رواتب مدفوعة</td><td class="num">${money(c.salaries)}</td></tr>
+    <tr><td>🤝 سحوبات الشركاء</td><td class="num">${money(c.withdrawals)}</td></tr>
+    <tr style="background:#fef2f2;font-weight:900"><td>الإجمالي الخارج</td><td class="num">${money(c.totalOut)}</td></tr>`;
+
+  // نتيجة المطابقة
+  const diff = lastCount ? Number(lastCount.counted) - c.expected : null;
+  $('#cashResultPanel').innerHTML = `
+    <h3>⚖️ نتيجة المطابقة</h3>
+    <div class="calc-box" style="font-size:16px;line-height:2.2">
+      الداخل <b>${money(c.totalIn)}</b> − الخارج <b>${money(c.totalOut)}</b> =
+      <span style="font-size:20px">المفروض في القاصة: <b>${money(c.expected)}</b></span>
+      ${lastCount ? `
+        <div style="margin-top:10px;border-top:1px dashed var(--line);padding-top:10px">
+          آخر جرد فعلي (${esc(lastCount.date)}): <b>${money(lastCount.counted)}</b> —
+          ${Math.abs(diff) < 0.01
+            ? '<span style="color:var(--green);font-weight:900">✔ مطابق تماماً</span>'
+            : `<span style="color:var(--red);font-weight:900">${diff > 0 ? 'زيادة' : 'عجز'} بمقدار ${money(Math.abs(diff))}</span>`}
+          ${lastCount.note?`<div class="hint">📝 ${esc(lastCount.note)}</div>`:''}
+        </div>` : '<div class="hint" style="margin-top:8px">لم يُسجَّل جرد فعلي بعد — اضغط "🧮 جرد القاصة" لمطابقة النقد الموجود.</div>'}
+    </div>`;
+
+  $('#cashDuesTable').innerHTML = `
+    <tr><th>البند</th><th>المبلغ</th><th>التفاصيل</th></tr>
+    <tr><td>📥 مستحق لك على الزبائن</td><td class="num" style="color:var(--green)">${money(c.dueFromCustomers)}</td>
+      <td>${S.invoices.filter(v=>!v.paid && inPeriod(v.date,from,to)).length} فاتورة آجلة</td></tr>
+    <tr><td>📤 مستحق عليك للموردين</td><td class="num" style="color:var(--red)">${money(c.dueToSuppliers)}</td>
+      <td>${S.movements.filter(m=>m.type==='in'&&m.paid===false&&inPeriod(m.date,from,to)).length} توريد آجل</td></tr>
+    <tr style="font-weight:900"><td>صافي الذمم</td>
+      <td class="num" style="color:${c.dueFromCustomers-c.dueToSuppliers>=0?'var(--green)':'var(--red)'}">${money(c.dueFromCustomers - c.dueToSuppliers)}</td>
+      <td class="hint">لو حصّلت ودفعت كل الذمم</td></tr>`;
+
+  $('#cashCountsTable').innerHTML = `
+    <tr><th>التاريخ</th><th>المعدود</th><th>المفروض</th><th>الفرق</th><th></th></tr>
+    ${[...S.cash_counts].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,10).map(k => {
+      const d = Number(k.counted) - Number(k.expected);
+      return `<tr><td>${esc(k.date)}</td><td class="num">${money(k.counted)}</td><td class="num">${money(k.expected)}</td>
+        <td class="num" style="color:${Math.abs(d)<0.01?'var(--green)':'var(--red)'}">${Math.abs(d)<0.01?'مطابق ✔':(d>0?'+':'')+money(d)}</td>
+        <td>${canEdit('cash')?`<button class="btn sm danger" onclick="delCashCount(${k.id})">🗑️</button>`:''}</td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="empty-row">لا يوجد جرد سابق</td></tr>'}`;
+}
+$('#cashApply').onclick = renderCash;
+
+window.openingForm = function() {
+  modal('⚙️ الرصيد الافتتاحي للقاصة', `
+    <div class="form-row"><label>المبلغ الموجود في القاصة عند بدء استخدام النظام (${CUR})</label>
+      <input id="f_open" type="number" step="any" value="${openingBalance()}"></div>
+    <div class="hint">يُضاف هذا المبلغ إلى الداخل عند عرض "كل الفترات".</div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveOpening()">💾 حفظ</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.saveOpening = async function() {
+  const val = String(Number($('#f_open').value) || 0);
+  const row = S.app_settings.find(s => s.key === 'opening_balance');
+  try {
+    if (row) await DB.update('app_settings', row.id, { value: val });
+    else await DB.insert('app_settings', { key: 'opening_balance', value: val });
+    closeModal(); toast('تم حفظ الرصيد الافتتاحي ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+window.cashCountForm = async function() {
+  const c = CASH || await cashSummary($('#cashFrom').value, $('#cashTo').value);
+  modal('🧮 جرد القاصة', `
+    <div class="calc-box">المفروض حسب النظام: <b>${money(c.expected)}</b></div>
+    <div class="form-grid" style="margin-top:12px">
+      <div class="form-row"><label>المبلغ المعدود فعلياً (${CUR}) *</label>
+        <input id="f_counted" type="number" step="any" oninput="cashDiffPreview(${c.expected})"></div>
+      <div class="form-row"><label>التاريخ</label><input id="f_date" type="date" value="${today()}"></div>
+    </div>
+    <div class="calc-box" id="cashDiffBox">أدخل المبلغ المعدود لمعرفة الفرق.</div>
+    <div class="form-row" style="margin-top:12px"><label>ملاحظة</label><input id="f_note" placeholder="سبب الفرق إن وُجد"></div>
+    <div class="form-actions">
+      <button class="btn primary" onclick="saveCashCount(${c.expected})">💾 حفظ الجرد</button>
+      <button class="btn ghost" onclick="closeModal()">إلغاء</button>
+    </div>`);
+};
+window.cashDiffPreview = function(expected) {
+  const counted = Number($('#f_counted').value) || 0;
+  const d = counted - expected;
+  $('#cashDiffBox').innerHTML = Math.abs(d) < 0.01
+    ? '<span style="color:var(--green);font-weight:900">✔ مطابق تماماً</span>'
+    : `الفرق: <b style="color:var(--red)">${d>0?'زيادة':'عجز'} ${money(Math.abs(d))}</b>`;
+};
+window.saveCashCount = async function(expected) {
+  const counted = Number($('#f_counted').value);
+  if (isNaN(counted)) return toast('أدخل المبلغ المعدود', 'err');
+  try {
+    await DB.insert('cash_counts', { date: $('#f_date').value||today(), counted, expected,
+      note: $('#f_note').value.trim() });
+    closeModal(); toast('تم حفظ الجرد ✔', 'ok'); await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+window.delCashCount = async function(id) {
+  if (!confirm('حذف سجل الجرد هذا؟')) return;
+  try { await DB.remove('cash_counts', id); await refresh(); }
+  catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+window.printCash = async function() {
+  const c = CASH || await cashSummary($('#cashFrom').value, $('#cashTo').value);
+  $('#printArea').innerHTML = `
+    <div class="inv-print">
+      <div class="inv-head">
+        <div style="display:flex;align-items:center;gap:14px">
+          <img src="assets/logo.png" alt="" style="width:85px;height:85px;object-fit:contain" onerror="this.remove()">
+          <div><h1>شركة بوابة الخليج</h1><div>للكونكريت الجاهز — تقرير القاصة</div></div>
+        </div>
+        <div class="inv-meta"><b>الفترة:</b> ${esc(c.period)}<br><b>تاريخ الطباعة:</b> ${today()}</div>
+      </div>
+      <table>
+        <tr><th colspan="2" style="background:#eee">الداخل إلى القاصة</th></tr>
+        ${c.opening?`<tr><td>رصيد افتتاحي</td><td>${money(c.opening)}</td></tr>`:''}
+        <tr><td>مقبوضات فواتير المبيعات</td><td>${money(c.collected)}</td></tr>
+        <tr><td>إيرادات أخرى</td><td>${money(c.otherRev)}</td></tr>
+        <tr style="font-weight:900"><td>إجمالي الداخل</td><td>${money(c.totalIn)}</td></tr>
+        <tr><th colspan="2" style="background:#eee">الخارج من القاصة</th></tr>
+        <tr><td>مشتريات مواد مسددة</td><td>${money(c.purchasesPaid)}</td></tr>
+        <tr><td>مصروفات تشغيلية</td><td>${money(c.expenses)}</td></tr>
+        <tr><td>رواتب مدفوعة</td><td>${money(c.salaries)}</td></tr>
+        <tr><td>سحوبات الشركاء</td><td>${money(c.withdrawals)}</td></tr>
+        <tr style="font-weight:900"><td>إجمالي الخارج</td><td>${money(c.totalOut)}</td></tr>
+      </table>
+      <div class="inv-total">المفروض في القاصة: ${money(c.expected)}</div>
+      <table style="margin-top:14px">
+        <tr><th>مستحق على الزبائن</th><th>مستحق للموردين</th></tr>
+        <tr><td>${money(c.dueFromCustomers)}</td><td>${money(c.dueToSuppliers)}</td></tr>
+      </table>
+      <p style="margin-top:34px;font-size:13px">أمين الصندوق: ______________ &nbsp;&nbsp; الإدارة: ______________</p>
+    </div>`;
+  window.print();
+};
+
+/* =====================================================
    📊 لوحة التحكم
    ===================================================== */
 function inRange(date, from, to) {
@@ -2198,6 +2520,7 @@ function renderDashboard() {
   const mixes = S.mixtures.filter(m => m.status==='executed' && ((!from && !to) || inRange(m.date, from, to)));
 
   const sales = invs.reduce((s,v)=>s+Number(v.total),0);
+  const otherRev = S.revenues.filter(r => (!from && !to) || inRange(r.date, from, to)).reduce((s,r)=>s+Number(r.amount),0);
   const cogs = invs.reduce((s,v)=>s+Number(v.cost),0);
   const sals = salariesTotal(from, to);
   const expTotal = exps.reduce((s,e)=>s+Number(e.amount),0) + sals;
@@ -2205,11 +2528,11 @@ function renderDashboard() {
   const stockValue = S.materials.reduce((s,m)=>s+qtyOf(m.id)*Number(m.unit_price),0);
   const activeCust = new Set(invs.map(v=>v.customer_id)).size;
   const unpaid = invs.filter(v=>!v.paid).reduce((s,v)=>s+Number(v.total),0);
-  const profit = sales - cogs - expTotal;
+  const profit = sales + otherRev - cogs - expTotal;
 
   $('#dashCards').innerHTML = `
     <div class="card blue"><div class="c-label">🏗️ إجمالي الإنتاج</div><div class="c-value">${fmt(production)}</div><div class="c-sub">${mixes.length} خلطة منفذة</div></div>
-    <div class="card green"><div class="c-label">🧾 إجمالي المبيعات</div><div class="c-value">${money(sales)}</div><div class="c-sub">${invs.length} فاتورة</div></div>
+    <div class="card green"><div class="c-label">🧾 إجمالي المبيعات</div><div class="c-value">${money(sales)}</div><div class="c-sub">${invs.length} فاتورة${otherRev?` + إيرادات ${fmt(otherRev)}`:''}</div></div>
     <div class="card amber"><div class="c-label">📦 قيمة المخزون</div><div class="c-value">${money(stockValue)}</div><div class="c-sub">${S.materials.length} مادة</div></div>
     <div class="card blue"><div class="c-label">👥 الزبائن النشطون</div><div class="c-value">${activeCust}</div><div class="c-sub">من أصل ${S.customers.length}</div></div>
     <div class="card red"><div class="c-label">💸 المصاريف والرواتب</div><div class="c-value">${money(expTotal)}</div><div class="c-sub">${sals>0?`منها رواتب: ${money(sals)}`:''}</div></div>
@@ -2423,6 +2746,10 @@ $('#btnAddMixture').onclick = () => mixtureForm(0);
 $('#btnAddCustomer').onclick = () => customerForm(0);
 $('#btnAddSale').onclick = () => saleForm();
 $('#btnAddExpense').onclick = () => expenseForm();
+$('#btnAddRevenue').onclick = () => revenueForm(0);
+$('#btnOpening').onclick = () => openingForm();
+$('#btnCashCount').onclick = () => cashCountForm();
+$('#btnCashPrint').onclick = () => printCash();
 $('#btnAddVehicle').onclick = () => vehicleForm(0);
 $('#btnAddEmployee').onclick = () => employeeForm(0);
 $('#btnAddPartner').onclick = () => partnerForm(0);
@@ -2435,7 +2762,9 @@ function applyPermissions() {
   // إخفاء صفحات القائمة غير المسموحة
   $$('.nav-btn').forEach(b => b.style.display = canView(b.dataset.page) ? '' : 'none');
   // إخفاء أزرار الإضافة حسب الدور
-  const addBtns = { btnAddMaterial:'materials', btnAddSupplier:'suppliers', btnAddRecipe:'recipes', btnAddMixture:'mixtures', btnAddCustomer:'customers',
+  const addBtns = { btnAddMaterial:'materials', btnAddSupplier:'suppliers', btnAddRecipe:'recipes',
+    btnAddRevenue:'revenues', btnOpening:'cash', btnCashCount:'cash',
+    btnAddMixture:'mixtures', btnAddCustomer:'customers',
     btnAddSale:'sales', btnAddExpense:'expenses', btnAddVehicle:'vehicles',
     btnAddEmployee:'employees', btnAddPartner:'partners', btnAddUser:'users' };
   Object.entries(addBtns).forEach(([btn, section]) => {
