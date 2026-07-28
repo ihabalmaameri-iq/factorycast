@@ -83,6 +83,7 @@ function mixtureCostNow(mixId) {
 // ---------- التنقل بين الصفحات ----------
 $$('.nav-btn').forEach(btn => btn.onclick = () => {
   if (btn.dataset.page === 'customers') backToCustomers();
+  if (btn.dataset.page === 'suppliers') backToSuppliers();
   showPage(btn.dataset.page);
 });
 function showPage(page) {
@@ -368,60 +369,33 @@ function renderSuppliers() {
     <div class="card amber"><div class="c-label">💵 قيمة المشتريات</div><div class="c-value">${money(totalValue)}</div></div>
     <div class="card ${unpaidValue>0?'red':'green'}"><div class="c-label">⏳ توريدات غير مسددة</div><div class="c-value">${money(unpaidValue)}</div></div>`;
 
-  const list = S.suppliers.filter(s => !q || s.name.includes(q) || (s.phone||'').includes(q));
-  $('#suppliersList').innerHTML = list.length ? list.map(s => {
-    const vehs = supVehicles(s.id);
-    const movs = supMovements(s.id);
-    const total = movs.reduce((x,m) => x + movValue(m), 0);
-    const unpaid = movs.filter(m => m.paid === false).reduce((x,m) => x + movValue(m), 0);
-    const vehRows = vehs.map(v => `<tr>
-      <td><b>🚛 ${esc(v.name)}</b></td>
-      <td>${esc(v.driver||'—')}</td>
-      <td dir="ltr" style="text-align:right">${esc(v.phone||'—')}</td>
-      <td class="num">${v.capacity?fmt(v.capacity):'—'}</td>
-      <td class="num">${S.movements.filter(m=>m.supplier_vehicle_id===v.id).length}</td>
-      <td>${ce ? `<div class="actions">
-        <button class="btn sm" onclick="supVehicleForm(${s.id}, ${v.id})">✏️</button>
-        <button class="btn sm danger" onclick="delSupVehicle(${v.id})">🗑️</button></div>` : ''}</td>
-    </tr>`).join('');
-    const lastMovs = [...movs].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,5).map(m => {
-      const mat = matById(m.material_id);
+  // جدول كل الموردين
+  const list = S.suppliers.filter(s => !q || s.name.includes(q) || (s.phone||'').includes(q)
+    || (s.material_types||'').includes(q));
+  $('#supTable').innerHTML = `
+    <tr><th>المعرف</th><th>اسم المورد</th><th>الهاتف</th><th>العنوان</th><th>المواد المورّدة</th>
+        <th>العربات</th><th>التوريدات</th><th>إجمالي المشتريات</th><th>المستحق عليك</th><th>إجراءات</th></tr>
+    ${list.map(s => {
+      const vehs = supVehicles(s.id), movs = supMovements(s.id);
+      const total = movs.reduce((x,m) => x + movValue(m), 0);
+      const unpaid = movs.filter(m => m.paid === false).reduce((x,m) => x + movValue(m), 0);
       return `<tr>
-        <td>${esc(m.date)}</td>
-        <td>${esc(mat?mat.name:'—')}</td>
-        <td class="num">${fmt(m.qty)} ${esc(mat?mat.unit:'')}</td>
-        <td class="num">${money(movValue(m))}</td>
-        <td><span class="badge ${m.paid===false?'low':'ok'}">${m.paid===false?'آجل':'مسدد'}</span></td>
-      </tr>`;
-    }).join('');
-    return `<div class="panel recipe-card">
-      <div class="recipe-head">
-        <div>
-          <h3 style="margin:0">🏪 ${esc(s.name)}</h3>
-          <div class="hint">
-            ${s.phone?`📞 <span dir="ltr">${esc(s.phone)}</span> &nbsp;`:''}
-            ${s.address?`📍 ${esc(s.address)} &nbsp;`:''}
-            ${s.material_types?`🧱 ${esc(s.material_types)}`:''}
-          </div>
-          <div class="hint">${vehs.length} عربة — ${movs.length} توريد — الإجمالي: <b>${money(total)}</b>${unpaid>0?` — <span style="color:var(--red)">آجل: ${money(unpaid)}</span>`:''}</div>
-        </div>
-        <div class="actions">
-          ${ce ? `<button class="btn sm primary" onclick="supVehicleForm(${s.id}, 0)">➕ عربة</button>
-          <button class="btn sm" onclick="supplierForm(${s.id})">✏️</button>
+        <td class="num">#${s.id}</td>
+        <td><b>🏪 ${esc(s.name)}</b></td>
+        <td dir="ltr" style="text-align:right">${esc(s.phone||'—')}</td>
+        <td>${esc(s.address||'—')}</td>
+        <td>${esc(s.material_types||'—')}</td>
+        <td class="num">${vehs.length}</td>
+        <td class="num">${movs.length}</td>
+        <td class="num">${money(total)}</td>
+        <td class="num" style="color:${unpaid>0?'var(--red)':'inherit'}">${money(unpaid)}</td>
+        <td><div class="actions">
+          <button class="btn sm primary" onclick="showSupplier(${s.id})">👁️ التفاصيل</button>
+          ${ce ? `<button class="btn sm" onclick="supplierForm(${s.id})">✏️</button>
           <button class="btn sm danger" onclick="delSupplier(${s.id})">🗑️</button>` : ''}
-        </div>
-      </div>
-      <div class="tbl-wrap"><table class="tbl">
-        <tr><th>العربة</th><th>السائق</th><th>الهاتف</th><th>الحمولة</th><th>التوريدات</th><th></th></tr>
-        ${vehRows || '<tr><td colspan="6" class="empty-row">لا توجد عربات مسجلة لهذا المورد</td></tr>'}
-      </table></div>
-      ${movs.length ? `<div class="hint" style="margin-top:10px">آخر التوريدات:</div>
-      <div class="tbl-wrap"><table class="tbl">
-        <tr><th>التاريخ</th><th>المادة</th><th>الكمية</th><th>القيمة</th><th>الدفع</th></tr>${lastMovs}
-      </table></div>` : ''}
-      ${s.notes ? `<div class="hint" style="margin-top:8px">📝 ${esc(s.notes)}</div>` : ''}
-    </div>`;
-  }).join('') : `<div class="panel"><p class="empty-row">${q?'لا نتائج مطابقة':'لا يوجد موردون بعد — اضغط "➕ مورد جديد"'}</p></div>`;
+        </div></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="10" class="empty-row">${q?'لا نتائج مطابقة':'لا يوجد موردون بعد — اضغط "➕ مورد جديد"'}</td></tr>`}`;
 
   // آخر عمليات التوريد (كل الموردين)
   const rows = [...allIn].sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.id-a.id).slice(0,25).map(m => {
@@ -443,8 +417,232 @@ function renderSuppliers() {
   $('#supMovTable').innerHTML = `
     <tr><th>التاريخ</th><th>المورد</th><th>العربة</th><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th><th>القيمة</th><th>رقم الوصل</th><th>الدفع</th></tr>
     ${rows || '<tr><td colspan="9" class="empty-row">لا توجد عمليات توريد بعد</td></tr>'}`;
+
+  if (CUR_SUPPLIER && $('#supDetailPanel').style.display === 'block') drawSupplier();
 }
 $('#supSearch').oninput = renderSuppliers;
+
+/* ---------- ملف المورد التفصيلي ---------- */
+let CUR_SUPPLIER = null;
+
+window.showSupplier = function(id) {
+  CUR_SUPPLIER = id;
+  $('#supListWrap').style.display = 'none';
+  $('#supDetailPanel').style.display = 'block';
+  $('#sdFrom').value = ''; $('#sdTo').value = ''; $('#sdPaid').value = '';
+  // تعبئة فلاتر المواد والعربات الخاصة بهذا المورد
+  const movs = supMovements(id);
+  const matIds = [...new Set(movs.map(m => m.material_id))];
+  $('#sdMaterial').innerHTML = '<option value="">كل المواد</option>' +
+    matIds.map(mid => { const m = matById(mid); return m ? `<option value="${mid}">${esc(m.name)}</option>` : ''; }).join('');
+  $('#sdVehicle').innerHTML = '<option value="">كل العربات</option>' +
+    supVehicles(id).map(v => `<option value="${v.id}">${esc(v.name)}</option>`).join('');
+  drawSupplier();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+window.backToSuppliers = function() {
+  CUR_SUPPLIER = null;
+  $('#supDetailPanel').style.display = 'none';
+  $('#supListWrap').style.display = 'block';
+};
+$('#sdBack').onclick = backToSuppliers;
+$('#sdApply').onclick = () => drawSupplier();
+$('#sdPrint').onclick = () => printSupplierStatement();
+
+function supplierData() {
+  const id = CUR_SUPPLIER;
+  const from = $('#sdFrom').value, to = $('#sdTo').value;
+  const matF = Number($('#sdMaterial').value) || null;
+  const vehF = Number($('#sdVehicle').value) || null;
+  const paidF = $('#sdPaid').value;
+  let movs = supMovements(id);
+  if (from || to) movs = movs.filter(m => inRange(m.date, from, to));
+  if (matF) movs = movs.filter(m => m.material_id === matF);
+  if (vehF) movs = movs.filter(m => m.supplier_vehicle_id === vehF);
+  if (paidF === '1') movs = movs.filter(m => m.paid !== false);
+  if (paidF === '0') movs = movs.filter(m => m.paid === false);
+  movs.sort((a,b) => (b.date||'').localeCompare(a.date||'') || b.id - a.id);
+  return { s: supById(id), movs, from, to };
+}
+
+function drawSupplier() {
+  const { s, movs, from, to } = supplierData();
+  if (!s) return backToSuppliers();
+  const ce = canEdit('suppliers');
+  $('#supDetailTitle').textContent = `🏪 ${s.name}`;
+
+  const total  = movs.reduce((x,m) => x + movValue(m), 0);
+  const paid   = movs.filter(m => m.paid !== false).reduce((x,m) => x + movValue(m), 0);
+  const unpaid = total - paid;
+  const period = (from || to) ? `${from||'البداية'} ← ${to||'اليوم'}` : 'كل الفترات';
+  const vehs = supVehicles(s.id);
+
+  const cards = `<div class="cards">
+    <div class="card amber"><div class="c-label">💵 إجمالي المشتريات</div><div class="c-value">${money(total)}</div>
+      <div class="c-sub">${movs.length} عملية توريد</div></div>
+    <div class="card green"><div class="c-label">✔ المسدد له</div><div class="c-value">${money(paid)}</div></div>
+    <div class="card ${unpaid>0?'red':'green'}"><div class="c-label">⏳ المستحق عليك</div><div class="c-value">${money(unpaid)}</div>
+      <div class="c-sub">${movs.filter(m=>m.paid===false).length} توريد آجل</div></div>
+    <div class="card blue"><div class="c-label">🚛 عربات المورد</div><div class="c-value">${vehs.length}</div>
+      <div class="c-sub">${esc(period)}</div></div>
+  </div>`;
+
+  const info = `<div class="panel">
+    <div class="recipe-head">
+      <div>
+        <h3 style="margin:0">📇 بيانات المورد</h3>
+        <div class="hint" style="font-size:14px;line-height:2">
+          📞 <span dir="ltr">${esc(s.phone||'—')}</span> &nbsp;|&nbsp; 📍 ${esc(s.address||'—')}
+          ${s.material_types?`<br>🧱 المواد: ${esc(s.material_types)}`:''}
+          ${s.notes?`<br>📝 ${esc(s.notes)}`:''}
+        </div>
+      </div>
+      ${ce ? `<div class="actions">
+        <button class="btn sm primary" onclick="supVehicleForm(${s.id}, 0)">➕ عربة</button>
+        <button class="btn sm" onclick="supplierForm(${s.id})">✏️ تعديل البيانات</button>
+      </div>` : ''}
+    </div>
+  </div>`;
+
+  // جدول التوريدات
+  const movRows = movs.map(m => {
+    const mat = matById(m.material_id);
+    const veh = m.supplier_vehicle_id ? S.supplier_vehicles.find(v=>v.id===m.supplier_vehicle_id) : null;
+    return `<tr>
+      <td>${esc(m.date)}</td>
+      <td><b>${esc(mat?mat.name:'—')}</b></td>
+      <td class="num">${fmt(m.qty)} ${esc(mat?mat.unit:'')}</td>
+      <td class="num">${money(m.price||0)}</td>
+      <td class="num"><b>${money(movValue(m))}</b></td>
+      <td>${veh?`🚛 ${esc(veh.name)}${veh.driver?`<div class="hint">${esc(veh.driver)}</div>`:''}`:'—'}</td>
+      <td>${esc(m.doc_no||'—')}</td>
+      <td><span class="badge ${m.paid===false?'low':'ok'}">${m.paid===false?'آجل':'مسدد'}</span></td>
+      <td>${esc(m.note||'')}</td>
+      <td>${ce ? `<div class="actions">
+        ${m.paid===false?`<button class="btn sm primary" onclick="paySupply(${m.id})">💵 تسديد</button>`:''}
+        <button class="btn sm" onclick="movementForm(${m.id})">✏️</button>
+        <button class="btn sm danger" onclick="delMovement(${m.id})">🗑️</button></div>` : ''}</td>
+    </tr>`;
+  }).join('');
+  const movTable = `<div class="panel">
+    <h3>📥 عمليات التوريد (${movs.length})</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>التاريخ</th><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th><th>القيمة</th>
+          <th>العربة</th><th>رقم الوصل</th><th>الدفع</th><th>ملاحظة</th><th>إجراءات</th></tr>
+      ${movRows || '<tr><td colspan="10" class="empty-row">لا توريدات مطابقة للتصفية</td></tr>'}
+      ${movs.length ? `<tr style="background:#f8fafc;font-weight:900">
+        <td colspan="4">الإجمالي</td><td class="num">${money(total)}</td><td colspan="5"></td></tr>` : ''}
+    </table></div>
+  </div>`;
+
+  // عربات المورد مع إحصاء كل عربة (ضمن التصفية)
+  const vehTable = `<div class="panel">
+    <h3>🚛 عربات المورد (${vehs.length})</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>العربة</th><th>السائق</th><th>الهاتف</th><th>الحمولة</th><th>عدد التوريدات</th><th>قيمة التوريدات</th><th></th></tr>
+      ${vehs.map(v => {
+        const vm = movs.filter(m => m.supplier_vehicle_id === v.id);
+        return `<tr>
+          <td><b>🚛 ${esc(v.name)}</b></td>
+          <td>${esc(v.driver||'—')}</td>
+          <td dir="ltr" style="text-align:right">${esc(v.phone||'—')}</td>
+          <td class="num">${v.capacity?fmt(v.capacity):'—'}</td>
+          <td class="num">${vm.length}</td>
+          <td class="num">${money(vm.reduce((x,m)=>x+movValue(m),0))}</td>
+          <td>${ce ? `<div class="actions">
+            <button class="btn sm" onclick="supVehicleForm(${s.id}, ${v.id})">✏️</button>
+            <button class="btn sm danger" onclick="delSupVehicle(${v.id})">🗑️</button></div>` : ''}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="7" class="empty-row">لا عربات مسجلة — اضغط "➕ عربة"</td></tr>'}
+    </table></div>
+  </div>`;
+
+  // تحليل: حسب المادة + شهرياً
+  const byMat = {};
+  movs.forEach(m => {
+    const mat = matById(m.material_id);
+    const k = mat ? mat.name : '—';
+    byMat[k] = byMat[k] || { qty:0, value:0, n:0, unit: mat?mat.unit:'' };
+    byMat[k].qty += Number(m.qty); byMat[k].value += movValue(m); byMat[k].n++;
+  });
+  const byMonth = {};
+  movs.forEach(m => { const mo = (m.date||'').slice(0,7); byMonth[mo] = (byMonth[mo]||0) + movValue(m); });
+  const months = Object.keys(byMonth).sort().slice(-8);
+  const max = Math.max(...months.map(x=>byMonth[x]), 1);
+
+  const analysis = `<div class="grid-2">
+    <div class="panel"><h3>🧱 حسب المادة</h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>المادة</th><th>مرات</th><th>الكمية</th><th>القيمة</th><th>متوسط السعر</th></tr>
+        ${Object.entries(byMat).sort((a,b)=>b[1].value-a[1].value).map(([k,v])=>`<tr>
+          <td>${esc(k)}</td><td class="num">${v.n}</td><td class="num">${fmt(v.qty)} ${esc(v.unit)}</td>
+          <td class="num">${money(v.value)}</td><td class="num">${money(v.qty>0?v.value/v.qty:0)}</td></tr>`).join('')
+          || '<tr><td colspan="5" class="empty-row">لا بيانات</td></tr>'}
+      </table></div></div>
+    <div class="panel"><h3>📊 المشتريات شهرياً</h3>
+      <div class="barchart">${months.map(mo=>`
+        <div class="bar-col">
+          <div class="bar-val">${fmt(byMonth[mo])}</div>
+          <div class="bar" style="height:${Math.max(byMonth[mo]/max*100,1.5)}%"></div>
+          <div class="bar-label">${mo}</div>
+        </div>`).join('') || '<p class="muted">لا بيانات</p>'}</div></div>
+  </div>`;
+
+  $('#supDetail').innerHTML = cards + info + movTable + vehTable + analysis;
+}
+
+// تسديد توريد آجل
+window.paySupply = async function(movId) {
+  const m = S.movements.find(x => x.id === movId);
+  const mat = matById(m.material_id);
+  if (!confirm(`تأكيد تسديد مبلغ ${money(movValue(m))} للمادة "${mat?mat.name:''}"؟`)) return;
+  try {
+    await DB.update('movements', movId, { paid: true });
+    toast('✔ تم تسجيل التسديد', 'ok');
+    await refresh();
+  } catch(e) { toast('خطأ: '+e.message, 'err'); }
+};
+
+// كشف حساب المورد
+window.printSupplierStatement = function() {
+  const { s, movs, from, to } = supplierData();
+  const total  = movs.reduce((x,m) => x + movValue(m), 0);
+  const paid   = movs.filter(m => m.paid !== false).reduce((x,m) => x + movValue(m), 0);
+  const unpaid = total - paid;
+  $('#printArea').innerHTML = `
+    <div class="inv-print">
+      <div class="inv-head">
+        <div style="display:flex;align-items:center;gap:14px">
+          <img src="assets/logo.png" alt="" style="width:85px;height:85px;object-fit:contain" onerror="this.remove()">
+          <div><h1>شركة بوابة الخليج</h1><div>للكونكريت الجاهز — كشف حساب مورد</div>
+          <div style="font-size:13px">📞 <span dir="ltr">078000002060</span></div></div>
+        </div>
+        <div class="inv-meta">
+          <b>المورد:</b> ${esc(s.name)}<br>
+          ${s.phone?`<b>الهاتف:</b> <span dir="ltr">${esc(s.phone)}</span><br>`:''}
+          <b>الفترة:</b> ${esc(from||'البداية')} ← ${esc(to||'اليوم')}<br>
+          <b>تاريخ الطباعة:</b> ${today()}
+        </div>
+      </div>
+      <table>
+        <tr><th>التاريخ</th><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th><th>القيمة</th><th>رقم الوصل</th><th>الحالة</th></tr>
+        ${movs.slice().reverse().map(m => {
+          const mat = matById(m.material_id);
+          return `<tr><td>${esc(m.date)}</td><td>${esc(mat?mat.name:'—')}</td>
+            <td>${fmt(m.qty)} ${esc(mat?mat.unit:'')}</td><td>${money(m.price||0)}</td>
+            <td>${money(movValue(m))}</td><td>${esc(m.doc_no||'—')}</td>
+            <td>${m.paid===false?'آجل':'مسدد'}</td></tr>`;
+        }).join('') || '<tr><td colspan="7">لا توريدات ضمن الفترة</td></tr>'}
+        <tr style="font-weight:900;background:#eee">
+          <td colspan="4">الإجمالي (${movs.length} توريد)</td><td>${money(total)}</td><td colspan="2"></td></tr>
+      </table>
+      <div class="inv-total">
+        المسدد: ${money(paid)} &nbsp;|&nbsp; <span style="color:#b00">المتبقي بذمتنا: ${money(unpaid)}</span>
+      </div>
+      <p style="margin-top:34px;font-size:13px">توقيع المورد: ______________ &nbsp;&nbsp; الإدارة: ______________</p>
+    </div>`;
+  window.print();
+};
 
 window.supplierForm = function(id) {
   const s = id ? supById(id) : null;
@@ -476,7 +674,7 @@ window.delSupplier = async function(id) {
   const s = supById(id);
   if (S.movements.some(m => m.supplier_id === id)) return toast('لا يمكن حذف مورد مرتبط بعمليات توريد', 'err');
   if (!confirm(`حذف المورد "${s.name}" وكل عرباته؟`)) return;
-  try { await DB.remove('suppliers', id); toast('تم الحذف', 'ok'); await refresh(); }
+  try { await DB.remove('suppliers', id); backToSuppliers(); toast('تم الحذف', 'ok'); await refresh(); }
   catch(e) { toast('خطأ: '+e.message, 'err'); }
 };
 

@@ -8,7 +8,7 @@
 <link rel="apple-touch-icon" href="assets/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=16">
+<link rel="stylesheet" href="css/style.css?v=17">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -82,10 +82,32 @@
         <div><input type="search" id="supSearch" placeholder="🔍 بحث عن مورد...">
         <button class="btn primary" id="btnAddSupplier">➕ مورد جديد</button></div>
       </div>
-      <div class="cards" id="supCards"></div>
-      <div id="suppliersList"></div>
-      <div class="panel"><h3>📥 آخر عمليات التوريد</h3>
-        <div class="tbl-wrap"><table class="tbl" id="supMovTable"></table></div></div>
+      <div id="supListWrap">
+        <div class="cards" id="supCards"></div>
+        <div class="panel"><div class="tbl-wrap"><table class="tbl" id="supTable"></table></div></div>
+        <div class="panel"><h3>📥 آخر عمليات التوريد (كل الموردين)</h3>
+          <div class="tbl-wrap"><table class="tbl" id="supMovTable"></table></div></div>
+      </div>
+      <div id="supDetailPanel" style="display:none">
+        <div class="page-head">
+          <h2 id="supDetailTitle"></h2>
+          <div class="filters">
+            <label>من <input type="date" id="sdFrom"></label>
+            <label>إلى <input type="date" id="sdTo"></label>
+            <select id="sdMaterial"><option value="">كل المواد</option></select>
+            <select id="sdVehicle"><option value="">كل العربات</option></select>
+            <select id="sdPaid">
+              <option value="">كل التوريدات</option>
+              <option value="1">المسددة فقط</option>
+              <option value="0">الآجلة فقط</option>
+            </select>
+            <button class="btn" id="sdApply">🔄 تصفية</button>
+            <button class="btn" id="sdPrint">🖨️ كشف حساب</button>
+            <button class="btn ghost" id="sdBack">↩️ رجوع للقائمة</button>
+          </div>
+        </div>
+        <div id="supDetail"></div>
+      </div>
     </section>
 
     <!-- الخلطات الجاهزة (الوصفات) -->
@@ -353,7 +375,7 @@
 
 <div id="toast"></div>
 
-<script src="js/db.js?v=16"></script>
-<script src="js/app.js?v=16"></script>
+<script src="js/db.js?v=17"></script>
+<script src="js/app.js?v=17"></script>
 </body>
 </html>
